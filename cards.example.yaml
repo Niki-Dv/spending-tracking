@@ -1,0 +1,75 @@
+# cards.yaml — Configure your credit cards and providers
+#
+# Copy this file to personal-info/cards.yaml and fill in your details.
+# Each entry under "providers" represents one PDF statement source.
+# The key (e.g., "max") becomes the argument for /review-spending
+# and the prefix for dashboard data filenames.
+
+owner: "Your Name"
+
+providers:
+  # === Max (מקס) ===
+  # One PDF contains transactions for all cards under this account.
+  # max:
+  #   name: "Max"
+  #   pdf_pattern: "{year}_{month}_max.pdf"       # {year}=4-digit, {month}=no leading zero
+  #   statement_format: "max"                      # References "Format: max" in CLAUDE.md
+  #   cards:
+  #     - last4: "1234"
+  #       label: "Primary spending card"
+  #     - last4: "5678"
+  #       label: "Secondary card"
+
+  # === CAL (כאל) — issued directly by CAL ===
+  # Each CAL card gets a separate PDF. Use separate provider entries.
+  # cal_XXXX:
+  #   name: "CAL"
+  #   pdf_pattern: "דף פירוט דיגיטלי כאל {MM}-{YY}.pdf"    # {MM}=2-digit, {YY}=2-digit
+  #   statement_format: "cal"
+  #   cards:
+  #     - last4: "XXXX"
+  #       label: "Visa Gold Business"
+
+  # === CAL (כאל) — issued via bank (e.g., Bank Discount, Mizrahi) ===
+  # These get a separate PDF with (1) suffix
+  # cal_YYYY:
+  #   name: "CAL (via Bank Discount)"
+  #   pdf_pattern: "דף פירוט דיגיטלי כאל {MM}-{YY} (1).pdf"
+  #   statement_format: "cal"
+  #   cards:
+  #     - last4: "YYYY"
+  #       label: "Visa Platinum"
+
+  # === Isracard (ישראכארט) ===
+  # Uncomment and adjust if you have Isracard statements.
+  # isracard:
+  #   name: "Isracard"
+  #   pdf_pattern: "isracard_{MM}_{YY}.pdf"        # Adjust to match your filenames
+  #   statement_format: "isracard"                  # Add "Format: isracard" section to CLAUDE.md
+  #   cards:
+  #     - last4: "XXXX"
+  #       label: "Main card"
+
+  # === Leumi Card ===
+  # leumi:
+  #   name: "Leumi Card"
+  #   pdf_pattern: "leumi_{MM}_{YY}.pdf"
+  #   statement_format: "leumi"
+  #   cards:
+  #     - last4: "XXXX"
+  #       label: "Main card"
+
+  # === American Express Israel ===
+  # amex:
+  #   name: "Amex"
+  #   pdf_pattern: "amex_{year}_{MM}.pdf"
+  #   statement_format: "amex"
+  #   cards:
+  #     - last4: "XXXX"
+  #       label: "Gold card"
+
+# Template variables for pdf_pattern:
+#   {year}  — 4-digit year (e.g., 2026)
+#   {month} — month WITHOUT leading zero (e.g., 2)
+#   {MM}    — 2-digit month (e.g., 02)
+#   {YY}    — 2-digit year (e.g., 26)

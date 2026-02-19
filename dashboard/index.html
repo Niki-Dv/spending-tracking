@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spending Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="../personal-info/dashboard/data.js"></script>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --card: #fff;
+    --border: #e5e5ea;
+    --text: #1d1d1f;
+    --muted: #86868b;
+    --accent: #0071e3;
+    --red: #ff3b30;
+    --orange: #ff9500;
+    --green: #34c759;
+    --yellow: #ffcc00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .header h1 { font-size: 24px; font-weight: 600; }
+  .header select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--card);
+    cursor: pointer;
+  }
+
+  /* Tab navigation */
+  .tab-nav {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    border-bottom: 2px solid var(--border);
+  }
+  .tab-btn {
+    padding: 12px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .card h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--muted);
+  }
+
+  /* Alerts */
+  .alerts { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .alert-item {
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    flex: 1;
+    min-width: 280px;
+  }
+  .alert-red { background: #fff5f5; border: 1px solid var(--red); color: var(--red); }
+  .alert-orange { background: #fff8f0; border: 1px solid var(--orange); color: #b36b00; }
+
+  /* Summary row */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    text-align: center;
+  }
+  .stat-value { font-size: 28px; font-weight: 700; margin: 4px 0; }
+  .stat-label { font-size: 13px; color: var(--muted); }
+  .stat-change { font-size: 14px; font-weight: 600; }
+  .stat-change.up { color: var(--red); }
+  .stat-change.down { color: var(--green); }
+
+  /* Charts */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .chart-container { position: relative; height: 320px; }
+  #categoryChart { cursor: pointer; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th {
+    text-align: right;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Status badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge-ok { background: #e8faf0; color: var(--green); }
+  .badge-missing { background: #fff5f5; color: var(--red); }
+  .badge-changed { background: #fffbe6; color: #b38f00; }
+  .badge-new { background: #f0f4ff; color: var(--accent); }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  /* Transaction groups */
+  .tx-group {
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .tx-group-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    background: var(--card);
+    gap: 12px;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .tx-group-header:hover { background: #f9f9fb; }
+  .tx-group-color {
+    width: 4px;
+    height: 32px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .tx-group-name { font-weight: 600; font-size: 14px; flex: 1; }
+  .tx-group-meta { font-size: 13px; color: var(--muted); display: flex; gap: 16px; }
+  .tx-group-meta span { white-space: nowrap; }
+  .tx-group-arrow {
+    font-size: 12px;
+    color: var(--muted);
+    transition: transform 0.2s;
+  }
+  .tx-group.open .tx-group-arrow { transform: rotate(90deg); }
+  .tx-group-body {
+    display: none;
+    background: var(--card);
+  }
+  .tx-group.open .tx-group-body { display: block; }
+  .tx-group-body table { margin: 0; }
+  .tx-group-body th { font-size: 11px; }
+  .tx-group-body td { font-size: 13px; padding: 8px 12px; }
+
+  /* Profile tab styles */
+  .profile-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .profile-card-item {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .profile-card-item .provider { font-size: 12px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
+  .profile-card-item .card-name { font-size: 16px; font-weight: 600; margin: 4px 0; }
+  .profile-card-item .card-type { font-size: 13px; color: var(--muted); }
+  .profile-card-item .last4 { font-size: 20px; font-weight: 700; color: var(--accent); margin-top: 8px; }
+
+  .recurring-section { margin-bottom: 12px; }
+  .recurring-section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-radius: 6px;
+    margin-bottom: 4px;
+  }
+
+  .merchant-accordion {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .merchant-accordion-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    background: var(--card);
+    gap: 12px;
+    user-select: none;
+  }
+  .merchant-accordion-header:hover { background: #f9f9fb; }
+  .merchant-accordion-name { font-weight: 600; font-size: 14px; flex: 1; }
+  .merchant-accordion-meta { font-size: 13px; color: var(--muted); }
+  .merchant-accordion-arrow {
+    font-size: 12px;
+    color: var(--muted);
+    transition: transform 0.2s;
+  }
+  .merchant-accordion.open .merchant-accordion-arrow { transform: rotate(90deg); }
+  .merchant-accordion-body {
+    display: none;
+    padding: 12px 16px;
+    background: var(--bg);
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  .merchant-accordion.open .merchant-accordion-body { display: block; }
+  .merchant-tag {
+    display: inline-block;
+    background: var(--card);
+    padding: 2px 10px;
+    border-radius: 12px;
+    margin: 2px 4px 2px 0;
+    font-size: 12px;
+    border: 1px solid var(--border);
+  }
+
+  .discontinued-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #f5f5f5;
+    color: var(--muted);
+  }
+
+  /* Card filter chips */
+  .card-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .card-chip {
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1.5px solid var(--border);
+    background: var(--card);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .card-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .card-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Bank tab styles */
+  .bank-summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .bank-stat-card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    text-align: center;
+  }
+  .bank-stat-card .stat-value.positive { color: var(--green); }
+  .bank-stat-card .stat-value.negative { color: var(--red); }
+  .cash-flow-bars { margin-top: 8px; }
+  .flow-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .flow-bar-label { font-size: 12px; color: var(--muted); width: 64px; text-align: right; white-space: nowrap; }
+  .flow-bar-bg {
+    flex: 1;
+    height: 10px;
+    background: var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .flow-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.4s;
+  }
+  .flow-bar-fill.income { background: var(--green); }
+  .flow-bar-fill.expense { background: var(--red); }
+  .flow-bar-fill.invest { background: var(--accent); }
+  .flow-bar-value { font-size: 12px; font-weight: 600; width: 80px; text-align: left; }
+  .bank-tx-positive { color: var(--green); font-weight: 600; }
+  .bank-tx-negative { color: var(--red); }
+
+  @media (max-width: 768px) {
+    .summary-row { grid-template-columns: 1fr; }
+    .charts-row { grid-template-columns: 1fr; }
+    .profile-cards { grid-template-columns: 1fr; }
+    .bank-summary-row { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Spending Dashboard</h1>
+</div>
+
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="monthly">Monthly Review</button>
+  <button class="tab-btn" data-tab="bank">Bank Account</button>
+  <button class="tab-btn" data-tab="profile">Spending Profile</button>
+</div>
+
+<!-- Monthly Review Tab -->
+<div id="tab-monthly" class="tab-content active">
+  <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+    <select id="cardSelector"></select>
+    <select id="monthSelector"></select>
+  </div>
+
+  <div id="cardChips" class="card-chips" style="display:none;"></div>
+  <div id="alerts" class="alerts"></div>
+
+  <div class="summary-row">
+    <div class="stat-card">
+      <div class="stat-label">Total This Month</div>
+      <div class="stat-value" id="totalAmount">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">vs Historical Average</div>
+      <div class="stat-value" id="avgChange">--</div>
+      <div class="stat-change" id="avgChangeDetail"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Transactions</div>
+      <div class="stat-value" id="txCount">--</div>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="card">
+      <h2>Spending by Category</h2>
+      <div class="chart-container">
+        <canvas id="categoryChart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Monthly Trend</h2>
+      <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recurring Payments</h2>
+    <table id="recurringTable">
+      <thead>
+        <tr><th>Merchant</th><th>Expected</th><th>Actual</th><th>Status</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h2>High Amount Transactions (500+)</h2>
+    <table id="highAmountTable">
+      <thead>
+        <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Category</th><th>Card</th><th>Note</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h2>All Transactions</h2>
+    <div id="transactionsContainer">
+      <div class="empty-state">No transaction data available</div>
+    </div>
+  </div>
+</div>
+
+<!-- Bank Account Tab -->
+<div id="tab-bank" class="tab-content">
+  <div id="bankNoData" class="empty-state" style="display:none; padding: 60px 20px;">
+    No bank statement data available. Import a bank Excel file to see account analysis.
+  </div>
+  <div id="bankContent">
+    <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+      <select id="bankMonthSelector"></select>
+      <span id="bankAccountLabel" style="font-size:13px;color:var(--muted);"></span>
+    </div>
+
+    <!-- Row 1: income vs outflow -->
+    <div class="bank-summary-row">
+      <div class="bank-stat-card">
+        <div class="stat-label">💰 Salary</div>
+        <div class="stat-value positive" id="bankSalary">--</div>
+      </div>
+      <div class="bank-stat-card">
+        <div class="stat-label">💳 Credit Card Payments</div>
+        <div class="stat-value negative" id="bankCCPayments">--</div>
+      </div>
+      <div class="bank-stat-card">
+        <div class="stat-label">📈 Invested</div>
+        <div class="stat-value" id="bankInvested" style="color:var(--accent)">--</div>
+      </div>
+      <div class="bank-stat-card">
+        <div class="stat-label">🏦 Other Outflows</div>
+        <div class="stat-value negative" id="bankOtherOut">--</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;" id="bankOtherOutDetail"></div>
+      </div>
+    </div>
+
+    <!-- Account balance highlight -->
+    <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
+      <div>
+        <div class="stat-label">Account Balance (end of month)</div>
+        <div class="stat-value" id="bankBalance" style="font-size:32px;">--</div>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div class="stat-label" style="margin-bottom:6px;">Net Cash Flow this month</div>
+        <div style="font-size:20px;font-weight:700;" id="bankNet">--</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="bankNetDetail"></div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="card">
+        <h2>Where the money went</h2>
+        <div id="bankFlowBars" class="cash-flow-bars"></div>
+      </div>
+      <div class="card">
+        <h2>Monthly Trend — bars: Income vs Outflows · line: balance change</h2>
+        <div class="chart-container">
+          <canvas id="bankTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>All Bank Transactions</h2>
+      <div id="bankTransactionsContainer">
+        <div class="empty-state">Select a month to view transactions</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Spending Profile Tab -->
+<div id="tab-profile" class="tab-content">
+  <div id="profileContent">
+    <div class="empty-state">Loading spending profile...</div>
+  </div>
+</div>
+
+<script>
+const DATA_DIR = 'data/';
+
+// Auto-discover cards from DATA_BUNDLE
+const REAL_CARDS = [];
+const CARDS = {};
+
+// Scan data bundle keys for card_{year}_{month} patterns
+for (const bundleKey of Object.keys(DATA_BUNDLE)) {
+  if (bundleKey === 'spending_profile') continue;
+  if (bundleKey.startsWith('bank_')) continue; // bank account data, not a credit card
+  const match = bundleKey.match(/^(.+?)_(\d{4})_(\d{2})$/);
+  if (match) {
+    const cardKey = match[1];
+    if (!CARDS[cardKey]) {
+      REAL_CARDS.push(cardKey);
+      CARDS[cardKey] = { label: cardKey, months: [] };
+    }
+  }
+}
+// Get better labels from cardLabel field in data files
+for (const [bundleKey, data] of Object.entries(DATA_BUNDLE)) {
+  if (bundleKey === 'spending_profile' || !data.cardLabel) continue;
+  const match = bundleKey.match(/^(.+?)_(\d{4})_(\d{2})$/);
+  if (match && CARDS[match[1]]) {
+    CARDS[match[1]].label = data.cardLabel;
+  }
+}
+// Add "All Cards" entry
+CARDS['all'] = { label: 'All Cards', months: [] };
+
+let categoryChart = null;
+let trendChart = null;
+
+// Sub-card filter (for providers with multiple cards, e.g. Max 1234/5678)
+let activeCardFilter = 'all'; // 'all' | last4 string
+
+const cardSel = document.getElementById('cardSelector');
+const monthSel = document.getElementById('monthSelector');
+const cardChipsEl = document.getElementById('cardChips');
+
+// Detect which provider keys have multiple cards (from cards.yaml via DATA_BUNDLE)
+// We infer this from transaction data: if a provider's transactions have varying .card values
+function getSubCards(data) {
+  if (!data || !data.transactions) return [];
+  const cards = [...new Set(data.transactions.map(t => t.card).filter(Boolean))];
+  return cards.length > 1 ? cards.sort() : [];
+}
+
+function updateChips(subCards) {
+  if (subCards.length === 0) {
+    cardChipsEl.style.display = 'none';
+    cardChipsEl.innerHTML = '';
+    activeCardFilter = 'all';
+    return;
+  }
+  cardChipsEl.style.display = 'flex';
+  const allChips = ['all', ...subCards];
+  cardChipsEl.innerHTML = allChips.map(c => {
+    const label = c === 'all' ? 'All' : `•••• ${c}`;
+    const isActive = activeCardFilter === c;
+    return `<button class="card-chip ${isActive ? 'active' : ''}" data-card="${c}">${label}</button>`;
+  }).join('');
+  cardChipsEl.querySelectorAll('.card-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeCardFilter = btn.dataset.card;
+      cardChipsEl.querySelectorAll('.card-chip').forEach(b => b.classList.toggle('active', b.dataset.card === activeCardFilter));
+      renderWithFilter(currentData);
+    });
+  });
+}
+
+// Filter raw data object by activeCardFilter before rendering
+function filterDataByCard(data, cardFilter) {
+  if (cardFilter === 'all' || !cardFilter) return data;
+  const txs = (data.transactions || []).filter(t => t.card === cardFilter);
+  const total = txs.reduce((s, t) => s + t.amount, 0);
+  // Rebuild categories from filtered transactions
+  const catMap = {};
+  txs.forEach(t => {
+    const c = t.category || 'Other';
+    if (!catMap[c]) catMap[c] = { name: c, total: 0, count: 0 };
+    catMap[c].total += t.amount;
+    catMap[c].count++;
+  });
+  return {
+    ...data,
+    transactions: txs,
+    total,
+    transactionCount: txs.length,
+    categories: Object.values(catMap),
+    highAmount: (data.highAmount || []).filter(h => h.card === cardFilter),
+    recurring: (data.recurring || []).filter(r => {
+      // Match recurring items to this card using the card field on transactions
+      const matchedTx = txs.find(t => t.merchant === r.merchant || (r.merchant && t.merchant && t.merchant.includes(r.merchant.split('/')[0])));
+      return !!matchedTx;
+    }),
+    suspicious: (data.suspicious || []).filter(s => {
+      const matchedTx = txs.find(t => t.merchant === s.merchant);
+      return !!matchedTx;
+    }),
+  };
+}
+
+let currentData = null;
+
+// Populate card selector: "All Cards" first, then individual cards
+['all', ...REAL_CARDS].forEach(key => {
+  const opt = document.createElement('option');
+  opt.value = key;
+  opt.textContent = CARDS[key].label;
+  cardSel.appendChild(opt);
+});
+
+function populateMonths(card) {
+  const prev = monthSel.value;
+  monthSel.innerHTML = '';
+  CARDS[card].months.slice().reverse().forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    monthSel.appendChild(opt);
+  });
+  // Keep previous selection if still available
+  if (prev && CARDS[card].months.includes(prev)) monthSel.value = prev;
+}
+
+function fileKey(card, month) {
+  return `${card}_${month.replace('-','_')}.json`;
+}
+
+function discoverMonths() {
+  const profile = DATA_BUNDLE['spending_profile'];
+  if (!profile) return;
+  const totals = profile.monthlyTotals || {};
+  for (const [pKey, arr] of Object.entries(totals)) {
+    if (CARDS[pKey]) {
+      CARDS[pKey].months = arr.map(m => m.month).sort();
+    }
+  }
+  const allMonths = new Set();
+  REAL_CARDS.forEach(c => CARDS[c].months.forEach(m => allMonths.add(m)));
+  CARDS.all.months = [...allMonths].sort();
+}
+
+function fmt(n) {
+  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', maximumFractionDigits: 0 }).format(n);
+}
+
+function fmtExact(n) {
+  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
+const COLORS = [
+  '#0071e3','#ff9500','#34c759','#ff3b30','#af52de','#ff2d55',
+  '#5ac8fa','#ffcc00','#64d2ff','#30b0c7','#a2845e','#8e8e93'
+];
+
+async function loadData(card, month) {
+  const key = `${card}_${month.replace('-','_')}`;
+  return DATA_BUNDLE[key] || null;
+}
+
+function renderAlerts(data) {
+  const el = document.getElementById('alerts');
+  if (!data.suspicious || data.suspicious.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = data.suspicious.map(s =>
+    `<div class="alert-item alert-${s.reason.toLowerCase().includes('missing') ? 'red' : 'orange'}">
+      <strong>${s.merchant}</strong> — ${s.reason}${s.amount ? ' (' + fmtExact(s.amount) + ')' : ''}
+    </div>`
+  ).join('');
+}
+
+function renderSummary(data) {
+  document.getElementById('totalAmount').textContent = fmt(data.total);
+  document.getElementById('txCount').textContent = data.transactionCount;
+
+  const pct = ((data.total - data.average) / data.average * 100).toFixed(0);
+  const sign = pct > 0 ? '+' : '';
+  document.getElementById('avgChange').textContent = sign + pct + '%';
+  const changeEl = document.getElementById('avgChange');
+  changeEl.className = 'stat-value';
+
+  const detail = document.getElementById('avgChangeDetail');
+  detail.textContent = `Average: ${fmt(data.average)}`;
+  detail.className = 'stat-change ' + (pct > 0 ? 'up' : 'down');
+}
+
+function buildCatsFromTransactions(data) {
+  const txs = data.transactions || [];
+  if (txs.length === 0) return (data.categories || []).slice();
+  const map = {};
+  txs.forEach(tx => {
+    const cat = tx.category || 'Other';
+    if (!map[cat]) map[cat] = { name: cat, total: 0, count: 0 };
+    map[cat].total += tx.amount;
+    map[cat].count++;
+  });
+  return Object.values(map);
+}
+
+function renderCategoryChart(data) {
+  const ctx = document.getElementById('categoryChart').getContext('2d');
+  if (categoryChart) categoryChart.destroy();
+
+  const cats = buildCatsFromTransactions(data).sort((a, b) => b.total - a.total);
+
+  categoryChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: cats.map(c => c.name),
+      datasets: [{
+        data: cats.map(c => c.total),
+        backgroundColor: COLORS.slice(0, cats.length),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const cat = cats[elements[0].index].name;
+        const catId = 'tx-cat-' + cat.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
+        const el = document.getElementById(catId);
+        if (!el) return;
+        el.classList.add('open');
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+      plugins: {
+        legend: {
+          position: 'right',
+          rtl: true,
+          labels: { font: { size: 11 }, padding: 8, usePointStyle: true },
+          onClick: (evt, legendItem) => {
+            const cat = cats[legendItem.index].name;
+            const catId = 'tx-cat-' + cat.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
+            const el = document.getElementById(catId);
+            if (!el) return;
+            el.classList.add('open');
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.label}: ${fmtExact(ctx.raw)} (${ctx.dataset.data.length ? ((ctx.raw / data.total) * 100).toFixed(1) : 0}%)`
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderTrendChart(data) {
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  if (trendChart) trendChart.destroy();
+
+  const history = data.monthlyHistory || [];
+  const currentMonth = data.month;
+
+  trendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: history.map(h => h.month),
+      datasets: [{
+        label: 'Monthly Total',
+        data: history.map(h => h.total),
+        backgroundColor: history.map(h => h.month === currentMonth ? '#0071e3' : '#c7d2fe'),
+        borderRadius: 6,
+        borderSkipped: false
+      }, {
+        label: 'Average',
+        type: 'line',
+        data: history.map(() => data.average),
+        borderColor: '#ff9500',
+        borderDash: [6, 4],
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => fmt(v) }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => fmt(ctx.raw) }
+        }
+      }
+    }
+  });
+}
+
+function renderRecurring(data) {
+  const tbody = document.querySelector('#recurringTable tbody');
+  const items = data.recurring || [];
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No recurring payments data</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(r => {
+    const statusClass = { ok: 'badge-ok', missing: 'badge-missing', changed: 'badge-changed', new: 'badge-new' }[r.status] || 'badge-ok';
+    const statusLabel = { ok: 'OK', missing: 'Missing', changed: 'Changed', new: 'New' }[r.status] || r.status;
+    return `<tr>
+      <td>${r.merchant}</td>
+      <td>${r.expected || '—'}</td>
+      <td>${r.actual != null ? fmtExact(r.actual) : '—'}</td>
+      <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderHighAmount(data) {
+  const tbody = document.querySelector('#highAmountTable tbody');
+  const items = data.highAmount || [];
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No high amount transactions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(h =>
+    `<tr>
+      <td>${h.date}</td>
+      <td>${h.merchant}</td>
+      <td>${fmtExact(h.amount)}</td>
+      <td>${h.category || ''}</td>
+      <td>${h.card || ''}</td>
+      <td>${h.note || ''}</td>
+    </tr>`
+  ).join('');
+}
+
+function renderTransactions(data) {
+  const container = document.getElementById('transactionsContainer');
+  const transactions = data.transactions || [];
+
+  if (transactions.length === 0) {
+    container.innerHTML = '<div class="empty-state">No transaction data available</div>';
+    return;
+  }
+
+  // Group by category
+  const groups = {};
+  transactions.forEach(tx => {
+    const cat = tx.category || 'Other';
+    if (!groups[cat]) groups[cat] = { total: 0, items: [] };
+    groups[cat].total += tx.amount;
+    groups[cat].items.push(tx);
+  });
+
+  // Sort groups by total descending
+  const sortedGroups = Object.entries(groups).sort((a, b) => b[1].total - a[1].total);
+
+  // Build color map matching the doughnut chart (both derive from transactions)
+  const cats = buildCatsFromTransactions(data).sort((a, b) => b.total - a.total);
+  const colorMap = {};
+  cats.forEach((c, i) => { colorMap[c.name] = COLORS[i % COLORS.length]; });
+
+  container.innerHTML = sortedGroups.map(([cat, group]) => {
+    const color = colorMap[cat] || '#8e8e93';
+    // Sort items by amount descending
+    group.items.sort((a, b) => b.amount - a.amount);
+
+    const rows = group.items.map(tx =>
+      `<tr>
+        <td>${tx.date}</td>
+        <td>${tx.merchant}</td>
+        <td>${fmtExact(tx.amount)}</td>
+        <td>${tx.card || ''}</td>
+        <td>${tx.note || ''}</td>
+      </tr>`
+    ).join('');
+
+    const catId = 'tx-cat-' + cat.replace(/[^a-zA-Z0-9\u0590-\u05FF]/g, '-');
+    return `<div class="tx-group" id="${catId}" onclick="this.classList.toggle('open')">
+      <div class="tx-group-header">
+        <div class="tx-group-color" style="background:${color}"></div>
+        <div class="tx-group-name">${cat}</div>
+        <div class="tx-group-meta">
+          <span>${fmtExact(group.total)}</span>
+          <span>${group.items.length} transactions</span>
+        </div>
+        <div class="tx-group-arrow">&#9654;</div>
+      </div>
+      <div class="tx-group-body">
+        <table>
+          <thead><tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Card</th><th>Note</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadAllCards(month) {
+  const results = await Promise.all(
+    REAL_CARDS.filter(c => CARDS[c].months.includes(month))
+              .map(c => loadData(c, month))
+  );
+  const loaded = results.filter(Boolean);
+  if (loaded.length === 0) return null;
+
+  // Merge categories
+  const catMap = {};
+  loaded.forEach(d => (d.categories || []).forEach(c => {
+    if (!catMap[c.name]) catMap[c.name] = { name: c.name, total: 0, count: 0 };
+    catMap[c.name].total += c.total;
+    catMap[c.name].count += c.count;
+  }));
+
+  // Merge monthly history: sum all cards per month
+  const histMap = {};
+  loaded.forEach(d => (d.monthlyHistory || []).forEach(h => {
+    histMap[h.month] = (histMap[h.month] || 0) + h.total;
+  }));
+  const monthlyHistory = Object.entries(histMap).sort((a,b) => a[0].localeCompare(b[0])).map(([m,t]) => ({ month: m, total: t }));
+
+  const totalAll = loaded.reduce((s, d) => s + d.total, 0);
+  const avgAll = loaded.reduce((s, d) => s + d.average, 0);
+
+  return {
+    card: 'all',
+    cardLabel: 'All Cards',
+    month,
+    total: totalAll,
+    transactionCount: loaded.reduce((s, d) => s + d.transactionCount, 0),
+    categories: Object.values(catMap),
+    suspicious: loaded.flatMap(d => (d.suspicious || []).map(s => ({ ...s, merchant: s.merchant + ' (' + d.cardLabel + ')' }))),
+    highAmount: loaded.flatMap(d => (d.highAmount || []).map(h => ({ ...h, card: h.card || (d.card !== 'max' ? d.card.replace(/^cal/,'CAL ') : null) }))).sort((a,b) => b.amount - a.amount),
+    recurring: loaded.flatMap(d => (d.recurring || []).map(r => ({ ...r, merchant: r.merchant + ' (' + d.cardLabel + ')' }))),
+    transactions: loaded.flatMap(d => (d.transactions || []).map(t => ({ ...t }))).sort((a,b) => b.amount - a.amount),
+    monthlyHistory,
+    average: avgAll
+  };
+}
+
+async function render() {
+  const card = cardSel.value;
+  const month = monthSel.value;
+  if (!card || !month) return;
+
+  const data = card === 'all' ? await loadAllCards(month) : await loadData(card, month);
+  if (!data) {
+    document.getElementById('alerts').innerHTML =
+      '<div class="alert-item alert-orange">No data file found for this selection.</div>';
+    document.getElementById('totalAmount').textContent = '--';
+    document.getElementById('avgChange').textContent = '--';
+    document.getElementById('avgChangeDetail').textContent = '';
+    document.getElementById('txCount').textContent = '--';
+    if (categoryChart) categoryChart.destroy();
+    if (trendChart) trendChart.destroy();
+    document.querySelector('#recurringTable tbody').innerHTML = '';
+    document.querySelector('#highAmountTable tbody').innerHTML = '';
+    document.getElementById('transactionsContainer').innerHTML = '<div class="empty-state">No data</div>';
+    updateChips([]);
+    return;
+  }
+
+  currentData = data;
+
+  // Show sub-card chips only for single-provider views (not All Cards)
+  if (card !== 'all') {
+    const subCards = getSubCards(data);
+    // Reset filter when card/month changes
+    if (!subCards.includes(activeCardFilter)) activeCardFilter = 'all';
+    updateChips(subCards);
+  } else {
+    updateChips([]);
+  }
+
+  renderWithFilter(data);
+}
+
+function renderWithFilter(data) {
+  const filtered = filterDataByCard(data, activeCardFilter);
+  renderAlerts(filtered);
+  renderSummary(filtered);
+  renderCategoryChart(filtered);
+  renderTrendChart(filtered);
+  renderRecurring(filtered);
+  renderHighAmount(filtered);
+  renderTransactions(filtered);
+}
+
+// === Bank Account Tab ===
+
+let bankTrendChart = null;
+
+function getBankMonths() {
+  return Object.keys(DATA_BUNDLE)
+    .filter(k => k.startsWith('bank_discount_'))
+    .map(k => {
+      const m = k.match(/bank_discount_(\d{4})_(\d{2})/);
+      return m ? `${m[1]}-${m[2]}` : null;
+    })
+    .filter(Boolean)
+    .sort();
+}
+
+function loadBankData(month) {
+  const key = `bank_discount_${month.replace('-', '_')}`;
+  return DATA_BUNDLE[key] || null;
+}
+
+function loadAllBankData() {
+  const months = getBankMonths();
+  return months.map(m => loadBankData(m)).filter(Boolean);
+}
+
+function initBankMonthSelector() {
+  const months = getBankMonths();
+  // If no bank data at all, show empty state and hide content
+  if (months.length === 0) {
+    document.getElementById('bankNoData').style.display = 'block';
+    document.getElementById('bankContent').style.display = 'none';
+    return;
+  }
+  document.getElementById('bankNoData').style.display = 'none';
+  document.getElementById('bankContent').style.display = 'block';
+
+  const sel = document.getElementById('bankMonthSelector');
+  sel.innerHTML = '';
+  months.slice().reverse().forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', () => renderBank(sel.value));
+}
+
+function getCatTotal(data, catName) {
+  const cat = (data.categories || []).find(c => c.name === catName);
+  return cat ? Math.abs(cat.total) : 0;
+}
+
+function renderBank(month) {
+  const data = loadBankData(month);
+  if (!data) return;
+  const allData = loadAllBankData();
+
+  // Account label
+  document.getElementById('bankAccountLabel').textContent =
+    `Discount Bank · Account ${data.account}`;
+
+  // --- Stat cards ---
+  document.getElementById('bankSalary').textContent = fmt(data.totalSalary);
+  document.getElementById('bankInvested').textContent = fmt(data.totalInvested);
+
+  // CC payments = sum of all credit card payment categories
+  const ccAmt = getCatTotal(data, 'Credit Card Payment');
+  document.getElementById('bankCCPayments').textContent = fmt(ccAmt);
+
+  // Other outflows = everything that's an outflow, minus CC payments and investments
+  const otherOut = Math.max(0, data.totalExpenses - ccAmt - data.totalInvested);
+  document.getElementById('bankOtherOut').textContent = fmt(otherOut);
+
+  // Build detail string for "other" — list non-CC/investment negative categories
+  const otherCats = (data.categories || [])
+    .filter(c => c.total < 0 && c.name !== 'Credit Card Payment' && c.name !== 'Investment Transfer' && c.name !== 'Investment Purchase')
+    .sort((a, b) => a.total - b.total);
+  document.getElementById('bankOtherOutDetail').textContent =
+    otherCats.map(c => `${c.name}: ${fmt(Math.abs(c.total))}`).join(' · ');
+
+  // --- Account balance ---
+  // Find the last transaction of the month by date
+  const sortedTxs = (data.transactions || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const lastBalance = sortedTxs.length > 0 ? sortedTxs[sortedTxs.length - 1].balance : null;
+  const lastDate = sortedTxs.length > 0 ? sortedTxs[sortedTxs.length - 1].date : null;
+  const balEl = document.getElementById('bankBalance');
+  balEl.textContent = lastBalance != null ? fmt(lastBalance) : '—';
+  balEl.className = 'stat-value' + (lastBalance != null ? (lastBalance >= 0 ? ' positive' : ' negative') : '');
+
+  // --- Net cash flow ---
+  const netEl = document.getElementById('bankNet');
+  netEl.textContent = (data.netCashFlow >= 0 ? '+' : '') + fmt(data.netCashFlow);
+  netEl.style.color = data.netCashFlow >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('bankNetDetail').textContent =
+    `Income ${fmt(data.totalIncome)} − Outflows ${fmt(data.totalExpenses)}` +
+    (lastDate ? ` · as of ${lastDate}` : '');
+
+  // --- Cash flow bars ---
+  const flowEl = document.getElementById('bankFlowBars');
+  const maxBar = Math.max(data.totalIncome, ccAmt, data.totalInvested, otherOut, 1);
+  const pct = v => Math.min(100, (Math.abs(v) / maxBar * 100)).toFixed(1);
+
+  const bars = [
+    { label: 'Salary In',     val: data.totalSalary, cls: 'income',  color: 'var(--green)' },
+    { label: 'Credit Cards',  val: ccAmt,             cls: 'expense', color: 'var(--red)' },
+    { label: 'Investments',   val: data.totalInvested,cls: 'invest',  color: 'var(--accent)' },
+    { label: 'Checks / ATM / Other', val: otherOut,   cls: 'expense', color: 'var(--orange)' },
+  ];
+
+  flowEl.innerHTML = bars.map(b => `
+    <div class="flow-bar-row">
+      <div class="flow-bar-label">${b.label}</div>
+      <div class="flow-bar-bg"><div class="flow-bar-fill ${b.cls}" style="width:${pct(b.val)}%;background:${b.color}"></div></div>
+      <div class="flow-bar-value" style="color:${b.color}">${fmt(b.val)}</div>
+    </div>`).join('');
+
+  // --- Trend chart ---
+  const ctx = document.getElementById('bankTrendChart').getContext('2d');
+  if (bankTrendChart) bankTrendChart.destroy();
+  const trendMonths = allData.map(d => d.month);
+  bankTrendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: trendMonths,
+      datasets: [
+        {
+          label: 'Income',
+          data: allData.map(d => d.totalIncome),
+          backgroundColor: allData.map(d => d.month === month ? '#34c759' : '#b8edc8'),
+          borderRadius: 4,
+          order: 2
+        },
+        {
+          label: 'Outflows',
+          data: allData.map(d => d.totalExpenses),
+          backgroundColor: allData.map(d => d.month === month ? '#ff3b30' : '#ffcac8'),
+          borderRadius: 4,
+          order: 2
+        },
+        {
+          label: 'Balance Change (Income − Outflows)',
+          type: 'line',
+          data: allData.map(d => d.netCashFlow),
+          borderColor: '#0071e3',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 4,
+          fill: false,
+          tension: 0.3,
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: false, ticks: { callback: v => fmt(v) } }
+      },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: { label: ctx => {
+          const sign = ctx.raw >= 0 ? '+' : '';
+          return `${ctx.dataset.label}: ${sign}${fmt(ctx.raw)}`;
+        }}}
+      }
+    }
+  });
+
+  // --- Transactions grouped by category ---
+  const container = document.getElementById('bankTransactionsContainer');
+  const txs = sortedTxs.slice().reverse(); // newest first
+  if (txs.length === 0) {
+    container.innerHTML = '<div class="empty-state">No transactions</div>';
+    return;
+  }
+
+  const groups = {};
+  txs.forEach(tx => {
+    const cat = tx.category || 'Other';
+    if (!groups[cat]) groups[cat] = { total: 0, items: [] };
+    groups[cat].total += tx.amount;
+    groups[cat].items.push(tx);
+  });
+  const sortedGroups = Object.entries(groups).sort((a, b) => Math.abs(b[1].total) - Math.abs(a[1].total));
+
+  container.innerHTML = sortedGroups.map(([cat, group]) => {
+    const rows = group.items.map(tx => {
+      const amtClass = tx.amount >= 0 ? 'bank-tx-positive' : 'bank-tx-negative';
+      return `<tr>
+        <td>${tx.date}</td>
+        <td>${tx.description}</td>
+        <td class="${amtClass}">${fmtExact(tx.amount)}</td>
+        <td style="color:var(--muted);font-size:12px;">${tx.balance != null ? fmt(tx.balance) : ''}</td>
+        <td style="color:var(--muted);font-size:12px;">${tx.ref || ''}</td>
+      </tr>`;
+    }).join('');
+
+    const catId = 'bank-cat-' + cat.replace(/[^a-zA-Z0-9]/g, '-');
+    const totalClass = group.total >= 0 ? 'bank-tx-positive' : 'bank-tx-negative';
+    return `<div class="tx-group" id="${catId}" onclick="this.classList.toggle('open')">
+      <div class="tx-group-header">
+        <div class="tx-group-name">${cat}</div>
+        <div class="tx-group-meta">
+          <span class="${totalClass}">${fmtExact(group.total)}</span>
+          <span>${group.items.length} transactions</span>
+        </div>
+        <div class="tx-group-arrow">&#9654;</div>
+      </div>
+      <div class="tx-group-body">
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Balance After</th><th>Ref</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// === Spending Profile Tab ===
+
+let profileTrendChart = null;
+
+function loadProfile() {
+  return DATA_BUNDLE['spending_profile'] || null;
+}
+
+function renderProfile(profile) {
+  const el = document.getElementById('profileContent');
+  if (!profile) {
+    el.innerHTML = '<div class="empty-state">Could not load spending profile data.</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="profile-cards" id="profileCards"></div>
+    <div class="card">
+      <h2>Combined Monthly Trend</h2>
+      <div class="chart-container">
+        <canvas id="profileTrendChart"></canvas>
+      </div>
+    </div>
+    <div class="card" id="recurringProfileCard">
+      <h2>Recurring Payments</h2>
+    </div>
+    <div class="card" id="merchantCategoriesCard">
+      <h2>Known Merchants by Category</h2>
+    </div>
+    <div class="card" id="foreignCountriesCard">
+      <h2>Foreign Countries</h2>
+    </div>
+    <div class="card" id="largePurchasesCard">
+      <h2>Large One-Time Purchases</h2>
+    </div>
+  `;
+
+  renderProfileCards(profile);
+  renderProfileTrend(profile);
+  renderProfileRecurring(profile);
+  renderProfileMerchants(profile);
+  renderProfileCountries(profile);
+  renderProfileLargePurchases(profile);
+}
+
+function renderProfileCards(profile) {
+  const el = document.getElementById('profileCards');
+  el.innerHTML = profile.cards.map(c => `
+    <div class="profile-card-item">
+      <div class="provider">${c.provider}</div>
+      <div class="card-name">${c.name}</div>
+      <div class="last4">${c.last4}</div>
+      <div class="card-type">${c.type}</div>
+    </div>
+  `).join('');
+}
+
+function renderProfileTrend(profile) {
+  const ctx = document.getElementById('profileTrendChart').getContext('2d');
+  if (profileTrendChart) profileTrendChart.destroy();
+
+  // Collect all months
+  const allMonths = new Set();
+  Object.values(profile.monthlyTotals).forEach(arr => arr.forEach(m => allMonths.add(m.month)));
+  const months = [...allMonths].sort();
+
+  const toMap = arr => { const m = {}; arr.forEach(e => m[e.month] = e.total); return m; };
+  const trendColors = ['#0071e3','#ff9500','#34c759','#ff3b30','#af52de','#ff2d55','#5ac8fa','#ffcc00'];
+  const datasets = Object.entries(profile.monthlyTotals).map(([key, arr], i) => {
+    const map = toMap(arr);
+    const label = CARDS[key] ? CARDS[key].label : key;
+    return {
+      label: label,
+      data: months.map(m => map[m] || 0),
+      backgroundColor: trendColors[i % trendColors.length],
+      borderRadius: 4,
+      borderSkipped: false
+    };
+  });
+
+  profileTrendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { callback: v => fmt(v) }
+        }
+      },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}` }
+        }
+      }
+    }
+  });
+}
+
+function renderProfileRecurring(profile) {
+  const el = document.getElementById('recurringProfileCard');
+  const rp = profile.recurringPayments;
+
+  // Group active by category
+  const groups = {};
+  (rp.active || []).forEach(item => {
+    const cat = item.category || 'Other';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  let html = '';
+  for (const [cat, items] of Object.entries(groups)) {
+    html += `<div class="recurring-section"><h3>${cat}</h3>
+      <table>
+        <thead><tr><th>Merchant</th><th>Amount</th><th>Card</th><th>Frequency</th><th>Notes</th></tr></thead>
+        <tbody>${items.map(i => `<tr>
+          <td>${i.merchant}</td>
+          <td>${i.amount}</td>
+          <td>${i.card}</td>
+          <td>${i.frequency}</td>
+          <td>${i.notes || ''}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
+  if (rp.discontinued && rp.discontinued.length > 0) {
+    html += `<div class="recurring-section"><h3>Discontinued</h3>
+      <table>
+        <thead><tr><th>Merchant</th><th>Amount</th><th>Card</th><th>Status</th></tr></thead>
+        <tbody>${rp.discontinued.map(i => `<tr>
+          <td>${i.merchant}</td>
+          <td>${i.amount}</td>
+          <td>${i.card}</td>
+          <td><span class="discontinued-badge">${i.status}</span></td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
+  el.innerHTML = '<h2>Recurring Payments</h2>' + html;
+}
+
+function renderProfileMerchants(profile) {
+  const el = document.getElementById('merchantCategoriesCard');
+  const cats = profile.merchantCategories || [];
+
+  const html = cats.map(cat => `
+    <div class="merchant-accordion" onclick="this.classList.toggle('open')">
+      <div class="merchant-accordion-header">
+        <div class="merchant-accordion-name">${cat.name}</div>
+        <div class="merchant-accordion-meta">${cat.range ? cat.range : ''} &middot; ${cat.merchantCount} merchants</div>
+        <div class="merchant-accordion-arrow">&#9654;</div>
+      </div>
+      <div class="merchant-accordion-body">
+        ${cat.merchants.map(m => `<span class="merchant-tag">${m}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  el.innerHTML = '<h2>Known Merchants by Category</h2>' + html;
+}
+
+function renderProfileCountries(profile) {
+  const el = document.getElementById('foreignCountriesCard');
+  const countries = profile.foreignCountries || [];
+
+  el.innerHTML = `<h2>Foreign Countries</h2>
+    <table>
+      <thead><tr><th>Country</th><th>Merchants</th><th>Currency</th></tr></thead>
+      <tbody>${countries.map(c => `<tr>
+        <td>${c.country}</td>
+        <td>${c.merchants}</td>
+        <td>${c.currency}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderProfileLargePurchases(profile) {
+  const el = document.getElementById('largePurchasesCard');
+  const items = profile.largePurchases || [];
+
+  el.innerHTML = `<h2>Large One-Time Purchases</h2>
+    <table>
+      <thead><tr><th>Item</th><th>Amount</th><th>Date</th><th>Card</th></tr></thead>
+      <tbody>${items.map(i => `<tr>
+        <td>${i.item}</td>
+        <td>${i.amount}</td>
+        <td>${i.date}</td>
+        <td>${i.card}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+// === Tab switching ===
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+
+    if (btn.dataset.tab === 'profile' && !profileLoaded) {
+      profileLoaded = true;
+      renderProfile(loadProfile());
+    }
+    if (btn.dataset.tab === 'bank' && !bankLoaded) {
+      bankLoaded = true;
+      initBankMonthSelector();
+      const months = getBankMonths();
+      if (months.length > 0) renderBank(months[months.length - 1]);
+    }
+  });
+});
+
+let profileLoaded = false;
+let bankLoaded = false;
+
+// === Event listeners ===
+cardSel.addEventListener('change', () => {
+  populateMonths(cardSel.value);
+  render();
+});
+monthSel.addEventListener('change', render);
+
+// Initial load
+discoverMonths();
+populateMonths('all');
+render();
+</script>
+</body>
+</html>

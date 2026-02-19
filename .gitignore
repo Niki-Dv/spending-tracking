@@ -1,0 +1,22 @@
+# Personal data — never commit these
+personal-info/
+
+# Legacy paths (in case files end up here accidentally)
+cards.yaml
+spending-profile.md
+dashboard/data/*.json
+dashboard/data.js
+
+# Statement PDFs
+*.pdf
+**/*.pdf
+
+# Bank Excel exports
+*.xlsx
+*.xls
+
+# macOS
+.DS_Store
+
+# Claude local settings
+.claude/settings.local.json
