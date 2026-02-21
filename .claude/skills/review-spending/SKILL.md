@@ -58,6 +58,17 @@ Parse all transactions from the extracted text. For each transaction extract:
 - Merchant name contains "aliexpress" (case-insensitive) → category: `"Online Shopping"`
 - Merchant name is "AMAZON" or contains "amazon" (case-insensitive) → category: `"Online Shopping"`
 
+**Standing order (הוראת קבע) parsing rules — critical:**
+When parsing a Max statement's הוראות קבע section (or any standing-order rows in any provider):
+- Each standing-order row has its OWN merchant name on the same line. Do NOT carry over the merchant name from a previous row or from the nearest preceding non-standing-order transaction.
+- The standing-order merchant name must come from that specific row only.
+- After extracting all standing orders, cross-check against spending-profile.md: if a standing-order merchant name does NOT appear in the recurring payments list, but another recurring payment has the same (or very close) amount, this is likely a misidentification — use the recurring payment's merchant name from spending-profile.md instead and flag it.
+- Known insurance merchants must ALWAYS be categorized as `"Insurance"` regardless of what the PDF says. Insurance merchants include: מגדל, ליברה, הראל, מנורה, כלל, מיטב, and any merchant name containing "ביטוח" or "ביטח".
+- Standing orders for telecom providers (HOT, HOT mobile, Partner, סלקום, Cellcom, Yes, Bezeq, and any merchant containing "תקשורת" or "mobile") must be categorized as `"Telecom & Computers"` — NEVER as `"Food & Groceries"`, `"Fashion"`, `"Tourism"`, or `"Flights & Tourism"`.
+- Standing orders for public transport (מ.תחבורה, רב-פס, פנגו, and similar) must be categorized as `"Institutions"` or `"Transportation"`.
+- After parsing all standing orders, verify the count: if you see 2–3 standing-order entries for the exact same merchant in a single billing period, this is almost certainly a parsing artifact (the same charge extracted multiple times). Keep only one — the one whose amount matches the expected value in spending-profile.md.
+- Never assign a standing-order transaction to a supermarket (שופרסל, רמי לוי, מגה, כרמל, Carrefour, etc.) — supermarkets do not issue standing orders. If such a combination appears, it is a misparse: the "Standing order" note was applied to the wrong line.
+
 ### 4. Produce structured report
 
 Output the following sections **in this order**:
@@ -154,6 +165,7 @@ Build `cardLabel` from config: use the provider's `name` field + last4 digits of
 - Each transaction: `date` (ISO YYYY-MM-DD), `merchant` (clean name), `amount` (ILS number), `category` (English name), `note` (installment info, standing order, country for foreign — empty string if none), `card` (last 4 digits of the card used — always include, even for single-card providers).
 - Apply merchant category overrides from Step 3 (e.g., AliExpress and Amazon → "Online Shopping").
 - Sort transactions by amount descending.
+- **Standing order cross-validation:** Before finalising the JSON, verify that every transaction with `"note": "Standing order"` has a merchant that matches (or is a close variant of) a merchant in the `recurring` array. If a standing-order transaction's merchant does NOT appear in `recurring`, and a recurring entry exists whose `actual` amount matches that transaction's amount, replace the transaction's merchant with the correct recurring entry's merchant name and set the category accordingly. Log the replacement as a note in the `suspicious` array so the user is aware.
 
 **Field notes:**
 - `monthlyHistory`: Include all months for this card from spending-profile.md, including the current month.

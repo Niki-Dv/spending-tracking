@@ -361,6 +361,20 @@
   .bank-tx-positive { color: var(--green); font-weight: 600; }
   .bank-tx-negative { color: var(--red); }
 
+  /* Insights panels */
+  .insights-panel { display: flex; flex-direction: column; gap: 8px; }
+  .insight-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; line-height: 1.5;
+  }
+  .insight-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .insight-tip     { background: #f0f8ff; border: 1px solid #b3d9ff; color: #004d99; }
+  .insight-warn    { background: #fff8f0; border: 1px solid var(--orange); color: #8a5a00; }
+  .insight-alert   { background: #fff5f5; border: 1px solid var(--red); color: #a00; }
+  .insight-good    { background: #f0fff5; border: 1px solid var(--green); color: #1a6e35; }
+  .insight-neutral { background: #f5f5f7; border: 1px solid var(--border); color: var(--text); }
+
   @media (max-width: 768px) {
     .summary-row { grid-template-columns: 1fr; }
     .charts-row { grid-template-columns: 1fr; }
@@ -405,6 +419,11 @@
       <div class="stat-label">Transactions</div>
       <div class="stat-value" id="txCount">--</div>
     </div>
+  </div>
+
+  <div id="monthlyInsights" style="display:none;" class="card" style="margin-bottom:16px;">
+    <h2>💡 Insights</h2>
+    <div class="insights-panel" id="monthlyInsightsPanel"></div>
   </div>
 
   <div class="charts-row">
@@ -493,6 +512,11 @@
         <div style="font-size:20px;font-weight:700;" id="bankNet">--</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="bankNetDetail"></div>
       </div>
+    </div>
+
+    <div id="bankInsights" style="display:none;" class="card" style="margin-bottom:16px;">
+      <h2>💡 Insights</h2>
+      <div class="insights-panel" id="bankInsightsPanel"></div>
     </div>
 
     <div class="charts-row">
@@ -1010,6 +1034,7 @@ function renderWithFilter(data) {
   const filtered = filterDataByCard(data, activeCardFilter);
   renderAlerts(filtered);
   renderSummary(filtered);
+  renderMonthlyInsights(filtered);
   renderCategoryChart(filtered);
   renderTrendChart(filtered);
   renderRecurring(filtered);
@@ -1073,6 +1098,7 @@ function renderBank(month) {
   const data = loadBankData(month);
   if (!data) return;
   const allData = loadAllBankData();
+  renderBankInsights(month, data, allData);
 
   // Account label
   document.getElementById('bankAccountLabel').textContent =
@@ -1251,7 +1277,7 @@ function renderProfile(profile) {
     return;
   }
 
-  el.innerHTML = `
+  el.innerHTML = renderProfileInsights(profile) + `
     <div class="profile-cards" id="profileCards"></div>
     <div class="card">
       <h2>Combined Monthly Trend</h2>
@@ -1437,6 +1463,358 @@ function renderProfileLargePurchases(profile) {
         <td>${i.card}</td>
       </tr>`).join('')}</tbody>
     </table>`;
+}
+
+// === Insights helpers ===
+
+function insightItem(type, icon, text) {
+  return `<div class="insight-item insight-${type}"><span class="insight-icon">${icon}</span><span>${text}</span></div>`;
+}
+
+// === Monthly Cards Tab Insights ===
+
+function renderMonthlyInsights(data) {
+  const panel = document.getElementById('monthlyInsights');
+  const list = document.getElementById('monthlyInsightsPanel');
+  if (!panel || !list) return;
+
+  const items = [];
+  const txs = data.transactions || [];
+  const cats = buildCatsFromTransactions(data);
+  const history = data.monthlyHistory || [];
+  const currentMonth = data.month;
+
+  // --- a) Category spikes vs historical average ---
+  // Build per-category totals for all months except current, from DATA_BUNDLE
+  const cardKey = data.card;
+  const catHistory = {}; // { catName: [total, total, ...] }
+
+  if (cardKey && cardKey !== 'all') {
+    // Single card: iterate history entries and load their data
+    history.forEach(h => {
+      if (h.month === currentMonth) return;
+      const key = `${cardKey}_${h.month.replace('-', '_')}`;
+      const d = DATA_BUNDLE[key];
+      if (!d) return;
+      buildCatsFromTransactions(d).forEach(c => {
+        if (!catHistory[c.name]) catHistory[c.name] = [];
+        catHistory[c.name].push(c.total);
+      });
+    });
+  } else if (cardKey === 'all') {
+    // All cards: aggregate across all card keys
+    REAL_CARDS.forEach(ck => {
+      (CARDS[ck].months || []).forEach(m => {
+        if (m === currentMonth) return;
+        const key = `${ck}_${m.replace('-', '_')}`;
+        const d = DATA_BUNDLE[key];
+        if (!d) return;
+        buildCatsFromTransactions(d).forEach(c => {
+          if (!catHistory[c.name]) catHistory[c.name] = [];
+          catHistory[c.name].push(c.total);
+        });
+      });
+    });
+  }
+
+  cats.forEach(c => {
+    const hist = catHistory[c.name];
+    if (!hist || hist.length < 2) return;
+    const avg = hist.reduce((s, v) => s + v, 0) / hist.length;
+    if (avg <= 0) return;
+    const ratio = c.total / avg;
+    if (ratio >= 1.5) {
+      items.push(insightItem('warn', '🔺',
+        `<strong>${c.name}</strong> this month: <strong>${fmt(c.total)}</strong> — ${ratio.toFixed(1)}× your average (${fmt(avg)})`
+      ));
+    }
+  });
+
+  // --- b) Duplicate / near-duplicate charges ---
+  // Group by merchant, find charges within 7 days
+  const byMerchant = {};
+  txs.forEach(tx => {
+    if (!tx.merchant || !tx.date) return;
+    const key = tx.merchant.trim().toLowerCase();
+    if (!byMerchant[key]) byMerchant[key] = [];
+    byMerchant[key].push(tx);
+  });
+
+  Object.entries(byMerchant).forEach(([, charges]) => {
+    if (charges.length < 2) return;
+    // Sort by date
+    charges.sort((a, b) => a.date.localeCompare(b.date));
+    for (let i = 0; i < charges.length - 1; i++) {
+      const a = charges[i], b = charges[i + 1];
+      const daysDiff = (new Date(b.date) - new Date(a.date)) / 86400000;
+      if (daysDiff <= 7) {
+        items.push(insightItem('alert', '⚠️',
+          `<strong>${charges[i].merchant}</strong> charged twice within ${Math.round(daysDiff) || 1} day(s): ${fmtExact(a.amount)} on ${a.date} and ${fmtExact(b.amount)} on ${b.date}`
+        ));
+        i++; // skip to avoid triple-reporting
+      }
+    }
+  });
+
+  // --- c) Savings tips (rule-based heuristics) ---
+  const deliveryMerchants = ['wolt','10bis','uber eats','ubereats','tenbis','deliveroo'];
+  const deliveryTotal = txs
+    .filter(t => t.merchant && deliveryMerchants.some(d => t.merchant.toLowerCase().includes(d)))
+    .reduce((s, t) => s + t.amount, 0);
+  if (deliveryTotal > 400) {
+    items.push(insightItem('tip', '💡',
+      `You spent <strong>${fmt(deliveryTotal)}</strong> on food delivery this month. Cooking just 2 more meals per week could save ~${fmt(deliveryTotal * 0.4)}/month.`
+    ));
+  }
+
+  const restaurantCat = cats.find(c =>
+    c.name.includes('מסעדות') || c.name.toLowerCase().includes('restaurant')
+  );
+  if (restaurantCat && restaurantCat.total > 1500) {
+    items.push(insightItem('tip', '🍽️',
+      `Dining out: <strong>${fmt(restaurantCat.total)}</strong> this month. Setting a <strong>${fmt(1200)}</strong> monthly target could save <strong>${fmt((restaurantCat.total - 1200) * 12)}</strong>/year.`
+    ));
+  }
+
+  const atmTxs = txs.filter(t => t.merchant && (t.merchant.includes('כספומט') || t.merchant.toLowerCase().includes('atm')));
+  if (atmTxs.length > 0) {
+    const atmTotal = atmTxs.reduce((s, t) => s + t.amount, 0);
+    items.push(insightItem('neutral', '💸',
+      `${atmTxs.length} ATM withdrawal(s) totalling ${fmt(atmTotal)}. Cash is hard to track — consider using digital payments for better visibility.`
+    ));
+  }
+
+  // Render or hide
+  if (items.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  list.innerHTML = items.join('');
+}
+
+// === Bank Tab Insights ===
+
+function renderBankInsights(month, data, allData) {
+  const panel = document.getElementById('bankInsights');
+  const list = document.getElementById('bankInsightsPanel');
+  if (!panel || !list) return;
+
+  const items = [];
+  const priorMonths = allData.filter(d => d.month !== month);
+
+  // --- a) Savings rate ---
+  const savingsRate = data.totalIncome > 0
+    ? ((data.totalIncome - data.totalExpenses) / data.totalIncome * 100)
+    : null;
+
+  if (savingsRate !== null) {
+    if (priorMonths.length >= 2) {
+      const avgRate = priorMonths
+        .filter(d => d.totalIncome > 0)
+        .reduce((s, d) => s + (d.totalIncome - d.totalExpenses) / d.totalIncome * 100, 0)
+        / priorMonths.filter(d => d.totalIncome > 0).length;
+      const diff = savingsRate - avgRate;
+      const type = savingsRate >= avgRate ? 'good' : (Math.abs(diff) <= 5 ? 'warn' : 'alert');
+      const arrow = savingsRate >= avgRate ? '📈' : '📉';
+      items.push(insightItem(type, arrow,
+        `Savings rate: <strong>${savingsRate.toFixed(1)}%</strong> — avg across prior months: ${avgRate.toFixed(1)}% ${diff >= 0 ? '(on track ✓)' : `(${Math.abs(diff).toFixed(1)}pp below average)`}`
+      ));
+    } else {
+      const type = savingsRate >= 20 ? 'good' : savingsRate >= 10 ? 'warn' : 'alert';
+      items.push(insightItem(type, '💾',
+        `Savings rate this month: <strong>${savingsRate.toFixed(1)}%</strong> of income`
+      ));
+    }
+  }
+
+  // --- b) Salary consistency ---
+  if (priorMonths.length >= 2) {
+    const priorSalaries = priorMonths.map(d => d.totalSalary).filter(s => s > 0);
+    if (priorSalaries.length >= 1) {
+      const avgSalary = priorSalaries.reduce((s, v) => s + v, 0) / priorSalaries.length;
+      if (data.totalSalary === 0) {
+        items.push(insightItem('alert', '⚠️',
+          `No salary found this month (expected ~${fmt(avgSalary)} based on prior months)`
+        ));
+      } else {
+        const diff = (data.totalSalary - avgSalary) / avgSalary;
+        if (Math.abs(diff) > 0.15) {
+          const dir = diff > 0 ? 'higher' : 'lower';
+          const type = diff < -0.15 ? 'warn' : 'neutral';
+          items.push(insightItem(type, '💰',
+            `Salary <strong>${fmt(data.totalSalary)}</strong> is ${Math.abs(diff * 100).toFixed(0)}% ${dir} than your average (${fmt(avgSalary)})`
+          ));
+        }
+      }
+    }
+  }
+
+  // --- c) Unusual large outflows ---
+  const skipCats = new Set(['Credit Card Payment', 'Investment Transfer', 'Investment Purchase', 'Salary']);
+  const largeOutflows = (data.transactions || []).filter(t =>
+    t.amount < -1000 && !skipCats.has(t.category)
+  );
+  largeOutflows.forEach(t => {
+    items.push(insightItem('warn', '🔍',
+      `Large debit: <strong>${t.description}</strong> — ${fmtExact(Math.abs(t.amount))} on ${t.date}`
+    ));
+  });
+
+  // --- d) Balance trajectory (last 3 months including current) ---
+  const sortedAll = allData.slice().sort((a, b) => a.month.localeCompare(b.month));
+  const recentThree = sortedAll.slice(-3);
+  if (recentThree.length >= 2) {
+    const balances = recentThree
+      .map(d => {
+        const txs = (d.transactions || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+        return txs.length > 0 ? txs[txs.length - 1].balance : null;
+      })
+      .filter(b => b !== null);
+
+    if (balances.length >= 2) {
+      const balChange = balances[balances.length - 1] - balances[0];
+      const type = balChange > 0 ? 'good' : balChange < -2000 ? 'alert' : 'neutral';
+      const icon = balChange > 0 ? '📈' : '📉';
+      const dir = balChange > 0 ? 'growing' : 'declining';
+      items.push(insightItem(type, icon,
+        `Account balance is <strong>${dir}</strong> — ${balChange >= 0 ? '+' : ''}${fmt(balChange)} over the last ${recentThree.length} months`
+      ));
+    }
+  }
+
+  if (items.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  list.innerHTML = items.join('');
+}
+
+// === Spending Profile Tab Insights ===
+
+function renderProfileInsights(profile) {
+  const items = [];
+
+  // --- a) Subscriptions audit ---
+  const active = (profile.recurringPayments || {}).active || [];
+  const skipForSubs = new Set(['Insurance', 'ביטוח', 'Salary']);
+  const subs = active.filter(s => !skipForSubs.has(s.category));
+
+  if (subs.length > 0) {
+    // Parse amounts like "₪145" or "~₪80" to numbers
+    const parseAmt = str => {
+      if (!str) return 0;
+      const m = String(str).replace(/[,~\s]/g, '').match(/[\d.]+/);
+      return m ? parseFloat(m[0]) : 0;
+    };
+    const total = subs.reduce((s, sub) => s + parseAmt(sub.amount), 0);
+    items.push(insightItem('neutral', '💳',
+      `<strong>${subs.length} active recurring payments</strong> totalling ~${fmt(total)}/month`
+    ));
+
+    // Flag streaming/entertainment duplication
+    const streamingKeywords = ['spotify', 'apple', 'netflix', 'youtube', 'hbo', 'disney', 'buyme'];
+    const streamingSubs = subs.filter(s =>
+      streamingKeywords.some(kw => (s.merchant || '').toLowerCase().includes(kw))
+    );
+    if (streamingSubs.length >= 3) {
+      items.push(insightItem('tip', '🎬',
+        `You have <strong>${streamingSubs.length} entertainment/streaming subscriptions</strong>. Review if all are actively used: ${streamingSubs.map(s => s.merchant).join(', ')}`
+      ));
+    }
+  }
+
+  // --- b) Top categories trend from DATA_BUNDLE ---
+  const catAccum = {}; // { catName: { months: count, total: sum } }
+  REAL_CARDS.forEach(ck => {
+    (CARDS[ck].months || []).forEach(m => {
+      const key = `${ck}_${m.replace('-', '_')}`;
+      const d = DATA_BUNDLE[key];
+      if (!d) return;
+      buildCatsFromTransactions(d).forEach(c => {
+        if (!catAccum[c.name]) catAccum[c.name] = { count: 0, total: 0 };
+        catAccum[c.name].count++;
+        catAccum[c.name].total += c.total;
+      });
+    });
+  });
+
+  const catAvgs = Object.entries(catAccum)
+    .map(([name, v]) => ({ name, avg: v.total / v.count, count: v.count }))
+    .filter(c => c.count >= 2 && c.avg > 100)
+    .sort((a, b) => b.avg - a.avg)
+    .slice(0, 3);
+
+  if (catAvgs.length > 0) {
+    const catList = catAvgs.map((c, i) => `${i + 1}. <strong>${c.name}</strong> avg ${fmt(c.avg)}/month`).join(' · ');
+    items.push(insightItem('neutral', '📊', `Top spending categories: ${catList}`));
+  }
+
+  // --- c) Actionable savings tips ---
+  catAvgs.forEach(c => {
+    const name = c.name;
+    const avg = c.avg;
+    if ((name.includes('מסעדות') || name.toLowerCase().includes('restaurant')) && avg > 800) {
+      const target = 600;
+      items.push(insightItem('tip', '🍽️',
+        `Dining: you average <strong>${fmt(avg)}/month</strong>. A ${fmt(target)} budget could save <strong>${fmt((avg - target) * 12)}/year</strong>.`
+      ));
+    }
+    if ((name.includes('תחבורה') || name.toLowerCase().includes('transport')) && avg > 500) {
+      items.push(insightItem('tip', '🚗',
+        `Transport: averaging <strong>${fmt(avg)}/month</strong>. Consider public transit or carpooling for savings.`
+      ));
+    }
+    if ((name.includes('אופנה') || name.toLowerCase().includes('fashion')) && avg > 500) {
+      items.push(insightItem('tip', '👗',
+        `Fashion: averaging <strong>${fmt(avg)}/month</strong>. End-of-season sales and second-hand options can significantly cut this.`
+      ));
+    }
+  });
+
+  // --- d) Month-over-month trend commentary ---
+  // Sum all cards per month
+  const allMonths = new Set();
+  REAL_CARDS.forEach(ck => (CARDS[ck].months || []).forEach(m => allMonths.add(m)));
+  const monthTotals = [...allMonths].sort().map(m => {
+    const total = REAL_CARDS.reduce((s, ck) => {
+      const key = `${ck}_${m.replace('-', '_')}`;
+      const d = DATA_BUNDLE[key];
+      return d ? s + (d.total || 0) : s;
+    }, 0);
+    return { month: m, total };
+  }).filter(m => m.total > 0);
+
+  if (monthTotals.length >= 3) {
+    const recent = monthTotals.slice(-3);
+    const oldest = recent[0].total;
+    const newest = recent[recent.length - 1].total;
+    const avg = recent.reduce((s, m) => s + m.total, 0) / recent.length;
+    const pctChange = ((newest - oldest) / oldest * 100);
+    const absPct = Math.abs(pctChange).toFixed(0);
+
+    if (pctChange > 10) {
+      items.push(insightItem('warn', '📈',
+        `Spending is <strong>up ${absPct}%</strong> over the last 3 months (${fmt(oldest)} → ${fmt(newest)}). Avg: ${fmt(avg)}/month.`
+      ));
+    } else if (pctChange < -10) {
+      items.push(insightItem('good', '📉',
+        `Spending is <strong>down ${absPct}%</strong> over the last 3 months — great trend! (${fmt(oldest)} → ${fmt(newest)})`
+      ));
+    } else {
+      items.push(insightItem('neutral', '→',
+        `Spending is <strong>stable</strong> over the last 3 months (avg ${fmt(avg)}/month, ±${absPct}%)`
+      ));
+    }
+  }
+
+  if (items.length === 0) return '';
+
+  return `<div class="card" style="margin-bottom:16px;">
+    <h2>💡 Insights</h2>
+    <div class="insights-panel">${items.join('')}</div>
+  </div>`;
 }
 
 // === Tab switching ===
