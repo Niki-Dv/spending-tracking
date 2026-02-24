@@ -78,13 +78,13 @@ List any transactions matching anomaly detection guidelines from spending-profil
 - Unknown merchants (not in spending profile)
 - Recurring payment amount changed >10%
 - Transaction from a new foreign country
-- Possible duplicates (same merchant, same day, same amount)
-- Missing expected recurring payments
+- Possible duplicates: same merchant **and** identical amount **and** within 2 days — all three must hold. Do NOT flag same merchant with different amounts (that is just a repeat visit).
+- Missing expected recurring payments — **but suppress the "missing" alert if the same merchant name already appears as an active recurring payment on any other card** (this means it migrated, not disappeared). In that case, note the migration instead of flagging it as missing.
 
 Format each as a bullet with the reason for flagging.
 
 #### High Amount Transactions (₪500+)
-List each transaction over ₪500 individually with date, merchant, amount, and category.
+List each transaction with `amount >= 500` individually with date, merchant, amount, and category. **Strict cutoff — do not include transactions below ₪500.**
 
 #### Spending by Category
 For each category, show:
@@ -143,6 +143,7 @@ Build `cardLabel` from config: use the provider's `name` field + last4 digits of
   "suspicious": [
     { "merchant": "SPOTIFY", "amount": 23.90, "reason": "Card changed from CAL 1234 to Max 5678" }
   ],
+  // ⚠️  suspicious items use "reason" — NOT "note". "note" belongs only in transactions[] and highAmount[].
   "highAmount": [
     { "date": "2025-12-29", "merchant": "Sample Merchant", "amount": 4435.63, "category": "Flights & Tourism", "note": "Installment 2/3" }
   ],
@@ -171,8 +172,9 @@ Build `cardLabel` from config: use the provider's `name` field + last4 digits of
 - `monthlyHistory`: Include all months for this card from spending-profile.md, including the current month.
 - `average`: The historical average from spending-profile.md for this card.
 - `recurring.status`: `"ok"` if present and within 10% of expected, `"missing"` if expected but absent, `"changed"` if amount differs >10%.
-- `highAmount`: All transactions ≥ ₪500. For installments, add `"note": "Installment X/Y"`.
-- `suspicious`: Same items flagged in Step 4's "Suspicious / Abnormal Transactions" section.
+- `recurring[]` **migration rule — critical to prevent duplicates in the dashboard**: Before building the `recurring[]` array for a card, check `spending-profile.md`'s Discontinued section. If a merchant is listed as discontinued/migrated on this card, **do not include it in `recurring[]` at all** for any month after its last-seen date. For example, if SPOTIFY is discontinued on cal4327 after Jan 2026, it must not appear in cal4327's `recurring[]` for Feb 2026 onward — even as "missing". The dashboard merges `recurring[]` from all cards; including a migrated merchant on the old card causes it to appear twice.
+- `highAmount`: **Only** transactions with `amount >= 500`. Do not include anything below ₪500 — not ₪499, not ₪450, nothing. For installments ≥ ₪500, add `"note": "Installment X/Y"`.
+- `suspicious`: Same items flagged in Step 4's "Suspicious / Abnormal Transactions" section. Each entry **must** have a `reason` string field — **never** use `note` here. (`note` is only valid inside `transactions[]` and `highAmount[]` entries.)
 - Category names should be in English (e.g., "Restaurants & Cafes", "Food & Groceries", "Flights & Tourism").
 
 ### 7. Regenerate spending profile JSON
@@ -183,6 +185,37 @@ The JSON should include: `lastUpdated`, `cards`, `recurringPayments` (active + d
 
 **Important:** Use provider keys from `personal-info/cards.yaml` as keys in `monthlyTotals` (e.g., `max`, `cal1234`, `cal5678`).
 
+**Critical field name:** Each entry in `recurringPayments.active` and `recurringPayments.discontinued` must use `amountRange` (not `amount`) for the amount string — e.g. `"amountRange": "₪286–290"`. The dashboard reads `sub.amountRange` to compute totals; using any other field name results in ₪0 totals.
+
+**`merchantCategories` schema:** Must be a plain JSON object (dict), not an array — keys are category names, values are arrays of merchant name strings. Example:
+```json
+"merchantCategories": {
+  "Restaurants & Cafes": ["Cafe Nero", "Ptikhon Lev"],
+  "Food & Groceries": ["שופרסל", "רמי לוי"]
+}
+```
+
+**`foreignCountries` schema:** Array of objects with fields `country`, `context` (description of transaction context), `card` (e.g. `"max 2995"`), `date` (e.g. `"2025-10"`). Example:
+```json
+"foreignCountries": [
+  { "country": "Italy", "context": "Rome trip — restaurants, shopping", "card": "max 2995", "date": "2025-10" }
+]
+```
+
+**`largePurchases` schema:** Array of objects with fields `merchant`, `amount` (number), `date` (YYYY-MM), `card`, `category`, `notes`. Example:
+```json
+"largePurchases": [
+  { "merchant": "Booking.com", "amount": 5992.92, "date": "2025-10", "card": "cal4327", "category": "Flights & Tourism", "notes": "EU 1,504.89 — vacation hotel" }
+]
+```
+
+**`cards` schema:** Array of objects with fields `key`, `name`, `cards` (array of last-4 strings), `format`, `period`. Example:
+```json
+"cards": [
+  { "key": "max", "name": "Max", "cards": ["2995", "8928"], "format": "max", "period": "2025-11 – present" }
+]
+```
+
 ### 8. Bundle dashboard data
 
 After writing any JSON files, run the dashboard build script to bundle all data for offline use:
@@ -191,4 +224,4 @@ After writing any JSON files, run the dashboard build script to bundle all data 
 bash dashboard/build.sh
 ```
 
-This generates `personal-info/dashboard/data.js` (gitignored) which allows the dashboard to work by simply opening `dashboard/index.html` — no local server needed.
+This generates `dashboard/data.js` (gitignored, same folder as `index.html`). **The file must live in `dashboard/`, not in `personal-info/dashboard/`.** Browsers block cross-directory `../` path traversal under `file://`, so if `data.js` is anywhere other than the same folder as `index.html`, it silently fails to load and the dashboard shows nothing. `build.sh` already outputs to the correct path — do not change it.

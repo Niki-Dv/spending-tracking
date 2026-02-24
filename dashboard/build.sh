@@ -6,7 +6,7 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$PROJECT_ROOT/personal-info/dashboard/data"
-OUT="$PROJECT_ROOT/personal-info/dashboard/data.js"
+OUT="$SCRIPT_DIR/data.js"
 
 if [ ! -d "$DATA_DIR" ]; then
   echo "No data directory found at $DATA_DIR — nothing to bundle."

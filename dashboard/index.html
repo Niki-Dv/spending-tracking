@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spending Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="../personal-info/dashboard/data.js"></script>
+<script src="chart.umd.min.js"></script>
+<script src="data.js"></script>
 <style>
   :root {
     --bg: #f5f5f7;
@@ -101,6 +101,24 @@
   }
   .alert-red { background: #fff5f5; border: 1px solid var(--red); color: var(--red); }
   .alert-orange { background: #fff8f0; border: 1px solid var(--orange); color: #b36b00; }
+  .alert-dismissed { background: #f5f5f7; border: 1px solid var(--border); color: var(--muted); }
+  .alert-dismiss-btn {
+    float: left; margin-left: 8px; margin-right: 0;
+    background: none; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 700; opacity: 0.5; padding: 0 4px; line-height: 1;
+  }
+  .alert-dismiss-btn:hover { opacity: 1; }
+  .alert-show-dismissed {
+    background: none; border: none; cursor: pointer;
+    font-size: 12px; color: var(--muted); padding: 2px 0; text-decoration: underline;
+  }
+  .recurring-action-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 11px; color: var(--muted); opacity: 0.4; padding: 2px 6px;
+    border-radius: 4px; white-space: nowrap;
+  }
+  .recurring-action-btn:hover { opacity: 1; background: var(--bg); }
+  .recurring-show-hidden { padding: 6px 12px; }
 
   /* Summary row */
   .summary-row {
@@ -369,6 +387,12 @@
     font-size: 13px; font-weight: 500; line-height: 1.5;
   }
   .insight-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .insight-dismiss-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 700; opacity: 0.35; padding: 0 0 0 8px;
+    flex-shrink: 0; align-self: flex-start; margin-top: 1px; line-height: 1.5;
+  }
+  .insight-dismiss-btn:hover { opacity: 0.9; }
   .insight-tip     { background: #f0f8ff; border: 1px solid #b3d9ff; color: #004d99; }
   .insight-warn    { background: #fff8f0; border: 1px solid var(--orange); color: #8a5a00; }
   .insight-alert   { background: #fff5f5; border: 1px solid var(--red); color: #a00; }
@@ -445,7 +469,7 @@
     <h2>Recurring Payments</h2>
     <table id="recurringTable">
       <thead>
-        <tr><th>Merchant</th><th>Expected</th><th>Actual</th><th>Status</th></tr>
+        <tr><th>Merchant</th><th>Expected</th><th>Actual</th><th>Status</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -549,6 +573,7 @@
 </div>
 
 <script>
+
 const DATA_DIR = 'data/';
 
 // Auto-discover cards from DATA_BUNDLE
@@ -694,11 +719,11 @@ function discoverMonths() {
 }
 
 function fmt(n) {
-  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', maximumFractionDigits: 0 }).format(n);
+  return '₪' + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
 }
 
 function fmtExact(n) {
-  return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return '₪' + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
 const COLORS = [
@@ -711,17 +736,78 @@ async function loadData(card, month) {
   return DATA_BUNDLE[key] || null;
 }
 
+// Dismissed alerts — persisted in localStorage by merchant key
+const DISMISSED_KEY = 'dismissed_alerts_v1';
+function getDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+function saveDismissed(set) {
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify([...set]));
+}
+function dismissAlert(merchantKey) {
+  const d = getDismissed();
+  d.add(merchantKey);
+  saveDismissed(d);
+}
+function undismissAlert(merchantKey) {
+  const d = getDismissed();
+  d.delete(merchantKey);
+  saveDismissed(d);
+}
+// Stable key for an alert: merchant + first 40 chars of reason
+function alertKey(s) {
+  return (s.merchant + '|' + (s.reason || '')).slice(0, 80);
+}
+
+let showDismissed = false;
+
 function renderAlerts(data) {
   const el = document.getElementById('alerts');
   if (!data.suspicious || data.suspicious.length === 0) {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = data.suspicious.map(s =>
-    `<div class="alert-item alert-${s.reason.toLowerCase().includes('missing') ? 'red' : 'orange'}">
+
+  const dismissed = getDismissed();
+  const active = data.suspicious.filter(s => !dismissed.has(alertKey(s)));
+  const hidden = data.suspicious.filter(s => dismissed.has(alertKey(s)));
+
+  const alertHtml = (list, isDismissed) => list.map(s => {
+    const key = alertKey(s);
+    const color = isDismissed ? 'dismissed' : ((s.reason || '').toLowerCase().includes('missing') ? 'red' : 'orange');
+    const action = isDismissed ? 'undismiss' : 'dismiss';
+    const btnLabel = isDismissed ? '↩' : '✕';
+    const btnTitle = isDismissed ? 'Restore' : 'Dismiss';
+    return `<div class="alert-item alert-${color}" style="${isDismissed ? 'opacity:0.45;' : ''}">
+      <button class="alert-dismiss-btn" data-action="${action}" data-key="${encodeURIComponent(key)}" title="${btnTitle}">${btnLabel}</button>
       <strong>${s.merchant}</strong> — ${s.reason}${s.amount ? ' (' + fmtExact(s.amount) + ')' : ''}
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
+
+  let html = alertHtml(active, false);
+
+  if (hidden.length > 0) {
+    html += `<div style="width:100%;margin-top:2px;">
+      <button class="alert-show-dismissed" data-action="toggle-dismissed">
+        ${showDismissed ? '▲ Hide' : '▼ Show'} ${hidden.length} dismissed alert${hidden.length > 1 ? 's' : ''}
+      </button>
+      ${showDismissed ? alertHtml(hidden, true) : ''}
+    </div>`;
+  }
+
+  el.innerHTML = html;
+
+  // Single delegated listener — no inline JS
+  el.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      if (action === 'dismiss') { dismissAlert(decodeURIComponent(btn.dataset.key)); renderWithFilter(currentData); }
+      else if (action === 'undismiss') { undismissAlert(decodeURIComponent(btn.dataset.key)); renderWithFilter(currentData); }
+      else if (action === 'toggle-dismissed') { showDismissed = !showDismissed; renderWithFilter(currentData); }
+    });
+  });
 }
 
 function renderSummary(data) {
@@ -851,28 +937,91 @@ function renderTrendChart(data) {
   });
 }
 
+// Not-recurring dismissals — keyed by merchant name, persisted in localStorage
+const NOT_RECURRING_KEY = 'not_recurring_v1';
+function getNotRecurring() {
+  try { return new Set(JSON.parse(localStorage.getItem(NOT_RECURRING_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+function saveNotRecurring(set) {
+  localStorage.setItem(NOT_RECURRING_KEY, JSON.stringify([...set]));
+}
+function markNotRecurring(merchant) {
+  const s = getNotRecurring(); s.add(merchant); saveNotRecurring(s);
+}
+function unmarkNotRecurring(merchant) {
+  const s = getNotRecurring(); s.delete(merchant); saveNotRecurring(s);
+}
+
+let showHiddenRecurring = false;
+
 function renderRecurring(data) {
-  const tbody = document.querySelector('#recurringTable tbody');
+  const table = document.getElementById('recurringTable');
+  const tbody = table.querySelector('tbody');
   const items = data.recurring || [];
   if (items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No recurring payments data</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No recurring payments data</td></tr>';
+    // remove any stale toggle
+    const old = table.parentElement.querySelector('.recurring-show-hidden');
+    if (old) old.remove();
     return;
   }
-  tbody.innerHTML = items.map(r => {
-    const statusClass = { ok: 'badge-ok', missing: 'badge-missing', changed: 'badge-changed', new: 'badge-new' }[r.status] || 'badge-ok';
-    const statusLabel = { ok: 'OK', missing: 'Missing', changed: 'Changed', new: 'New' }[r.status] || r.status;
-    return `<tr>
+
+  const notRecurring = getNotRecurring();
+  const active = items.filter(r => !notRecurring.has(r.merchant));
+  const hidden = items.filter(r => notRecurring.has(r.merchant));
+
+  const rowHtml = (list, isHidden) => list.map(r => {
+    const statusClass = { ok: 'badge-ok', missing: 'badge-missing', changed: 'badge-changed', new: 'badge-new', low: 'badge-changed', not_this_month: 'badge-new' }[r.status] || 'badge-ok';
+    const statusLabel = { ok: 'OK', missing: 'Missing', changed: 'Changed', new: 'New', low: 'Low', not_this_month: 'Not this month' }[r.status] || r.status;
+    const btn = isHidden
+      ? `<button class="recurring-action-btn" data-action="unmark-recurring" data-merchant="${encodeURIComponent(r.merchant)}" title="Restore as recurring">↩ restore</button>`
+      : `<button class="recurring-action-btn" data-action="mark-not-recurring" data-merchant="${encodeURIComponent(r.merchant)}" title="Mark as not a recurring payment">✕ not recurring</button>`;
+    return `<tr style="${isHidden ? 'opacity:0.4;' : ''}">
       <td>${r.merchant}</td>
       <td>${r.expected || '—'}</td>
       <td>${r.actual != null ? fmtExact(r.actual) : '—'}</td>
       <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+      <td>${btn}</td>
     </tr>`;
   }).join('');
+
+  tbody.innerHTML = rowHtml(active, false) + (showHiddenRecurring ? rowHtml(hidden, true) : '');
+
+  // Show/hide toggle row
+  let toggleRow = table.parentElement.querySelector('.recurring-show-hidden');
+  if (hidden.length > 0) {
+    if (!toggleRow) {
+      toggleRow = document.createElement('div');
+      toggleRow.className = 'recurring-show-hidden';
+      table.parentElement.appendChild(toggleRow);
+    }
+    toggleRow.innerHTML = `<button class="alert-show-dismissed" data-action="toggle-hidden-recurring">
+      ${showHiddenRecurring ? '▲ Hide' : '▼ Show'} ${hidden.length} non-recurring item${hidden.length > 1 ? 's' : ''}
+    </button>`;
+    toggleRow.querySelector('[data-action]').addEventListener('click', () => {
+      showHiddenRecurring = !showHiddenRecurring;
+      renderRecurring(data);
+    });
+  } else if (toggleRow) {
+    toggleRow.remove();
+  }
+
+  // Delegated listeners for row buttons
+  tbody.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const merchant = decodeURIComponent(btn.dataset.merchant);
+      if (btn.dataset.action === 'mark-not-recurring') markNotRecurring(merchant);
+      else if (btn.dataset.action === 'unmark-recurring') unmarkNotRecurring(merchant);
+      renderRecurring(data);
+    });
+  });
 }
 
 function renderHighAmount(data) {
   const tbody = document.querySelector('#highAmountTable tbody');
-  const items = data.highAmount || [];
+  const items = (data.highAmount || []).filter(h => h.amount >= 500);
   if (items.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No high amount transactions</td></tr>';
     return;
@@ -1035,8 +1184,8 @@ function renderWithFilter(data) {
   renderAlerts(filtered);
   renderSummary(filtered);
   renderMonthlyInsights(filtered);
-  renderCategoryChart(filtered);
-  renderTrendChart(filtered);
+  try { renderCategoryChart(filtered); } catch(e) { console.warn('Category chart error:', e); }
+  try { renderTrendChart(filtered); } catch(e) { console.warn('Trend chart error:', e); }
   renderRecurring(filtered);
   renderHighAmount(filtered);
   renderTransactions(filtered);
@@ -1305,18 +1454,55 @@ function renderProfile(profile) {
   renderProfileMerchants(profile);
   renderProfileCountries(profile);
   renderProfileLargePurchases(profile);
+  attachInsightListeners(document.getElementById('profileInsightsPanel'));
+
+  // Wire up "not recurring" buttons in the profile recurring table
+  const recurringCard = document.getElementById('recurringProfileCard');
+  if (recurringCard) {
+    // Hide already-marked rows and recalculate subtotals
+    const notRecurring = getNotRecurring();
+    recurringCard.querySelectorAll('[data-action="mark-not-recurring"]').forEach(btn => {
+      const merchant = decodeURIComponent(btn.dataset.merchant);
+      if (notRecurring.has(merchant)) btn.closest('tr').style.display = 'none';
+    });
+    // After hiding, update each section's subtotal
+    recurringCard.querySelectorAll('.recurring-section').forEach(section => {
+      const visibleRows = section.querySelectorAll('tbody tr:not([style*="display: none"]):not([style*="display:none"])');
+      const newTotal = Array.from(visibleRows).reduce((s, r) => s + (parseFloat(r.dataset.amount) || 0), 0);
+      const subtotalSpan = section.querySelector('.cat-subtotal');
+      if (subtotalSpan) subtotalSpan.textContent = `— ${fmt(newTotal)}/month`;
+    });
+    recurringCard.querySelectorAll('[data-action="mark-not-recurring"]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        markNotRecurring(decodeURIComponent(btn.dataset.merchant));
+        const row = btn.closest('tr');
+        row.style.display = 'none';
+        // Recalculate category subtotal from remaining visible rows
+        const section = row.closest('.recurring-section');
+        if (section) {
+          const visibleRows = section.querySelectorAll('tbody tr:not([style*="display: none"]):not([style*="display:none"])');
+          const newTotal = Array.from(visibleRows).reduce((s, r) => s + (parseFloat(r.dataset.amount) || 0), 0);
+          const subtotalSpan = section.querySelector('.cat-subtotal');
+          if (subtotalSpan) subtotalSpan.textContent = `— ${fmt(newTotal)}/month`;
+        }
+      });
+    });
+  }
 }
 
 function renderProfileCards(profile) {
   const el = document.getElementById('profileCards');
-  el.innerHTML = profile.cards.map(c => `
+  el.innerHTML = profile.cards.map(c => {
+    const last4s = (c.cards || []).join(' + ');
+    const label = last4s ? `${c.name} (${last4s})` : c.name;
+    return `
     <div class="profile-card-item">
-      <div class="provider">${c.provider}</div>
-      <div class="card-name">${c.name}</div>
-      <div class="last4">${c.last4}</div>
-      <div class="card-type">${c.type}</div>
-    </div>
-  `).join('');
+      <div class="provider">${c.format ? c.format.toUpperCase() : ''}</div>
+      <div class="card-name">${label}</div>
+      <div class="card-type">${c.period || ''}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderProfileTrend(profile) {
@@ -1373,6 +1559,13 @@ function renderProfileRecurring(profile) {
   const el = document.getElementById('recurringProfileCard');
   const rp = profile.recurringPayments;
 
+  // Parse amountRange string to a number for summing
+  const parseAmt = str => {
+    if (!str) return 0;
+    const m = String(str).replace(/[,~\s]/g, '').match(/[\d.]+/);
+    return m ? parseFloat(m[0]) : 0;
+  };
+
   // Group active by category
   const groups = {};
   (rp.active || []).forEach(item => {
@@ -1383,15 +1576,18 @@ function renderProfileRecurring(profile) {
 
   let html = '';
   for (const [cat, items] of Object.entries(groups)) {
-    html += `<div class="recurring-section"><h3>${cat}</h3>
+    const catTotal = items.reduce((s, i) => s + parseAmt(i.amountRange || i.amount), 0);
+    html += `<div class="recurring-section">
+      <h3>${cat} <span class="cat-subtotal" style="font-weight:400;color:var(--muted);font-size:12px;text-transform:none;letter-spacing:0;">— ${fmt(catTotal)}/month</span></h3>
       <table>
         <thead><tr><th>Merchant</th><th>Amount</th><th>Card</th><th>Frequency</th><th>Notes</th></tr></thead>
-        <tbody>${items.map(i => `<tr>
+        <tbody>${items.map(i => `<tr data-amount="${parseAmt(i.amountRange || i.amount)}">
           <td>${i.merchant}</td>
-          <td>${i.amount}</td>
+          <td>${i.amountRange || i.amount || ''}</td>
           <td>${i.card}</td>
           <td>${i.frequency}</td>
           <td>${i.notes || ''}</td>
+          <td><button class="recurring-action-btn" data-action="mark-not-recurring" data-merchant="${encodeURIComponent(i.merchant)}" title="Mark as not recurring">✕</button></td>
         </tr>`).join('')}</tbody>
       </table>
     </div>`;
@@ -1403,7 +1599,7 @@ function renderProfileRecurring(profile) {
         <thead><tr><th>Merchant</th><th>Amount</th><th>Card</th><th>Status</th></tr></thead>
         <tbody>${rp.discontinued.map(i => `<tr>
           <td>${i.merchant}</td>
-          <td>${i.amount}</td>
+          <td>${i.amountRange || i.amount || ''}</td>
           <td>${i.card}</td>
           <td><span class="discontinued-badge">${i.status}</span></td>
         </tr>`).join('')}</tbody>
@@ -1416,20 +1612,37 @@ function renderProfileRecurring(profile) {
 
 function renderProfileMerchants(profile) {
   const el = document.getElementById('merchantCategoriesCard');
-  const cats = profile.merchantCategories || [];
+  const raw = profile.merchantCategories || [];
 
-  const html = cats.map(cat => `
+  // Normalise: JSON may be a plain object {catName: [merchants]} or an array of objects
+  const cats = Array.isArray(raw)
+    ? raw
+    : Object.entries(raw).map(([name, merchants]) => ({
+        name,
+        merchants: Array.isArray(merchants) ? merchants : [],
+        merchantCount: Array.isArray(merchants) ? merchants.length : 0
+      }));
+
+  if (cats.length === 0) {
+    el.innerHTML = '<h2>Known Merchants by Category</h2><div class="empty-state">No data</div>';
+    return;
+  }
+
+  const html = cats.map(cat => {
+    const merchants = Array.isArray(cat.merchants) ? cat.merchants : [];
+    const count = cat.merchantCount || merchants.length;
+    return `
     <div class="merchant-accordion" onclick="this.classList.toggle('open')">
       <div class="merchant-accordion-header">
         <div class="merchant-accordion-name">${cat.name}</div>
-        <div class="merchant-accordion-meta">${cat.range ? cat.range : ''} &middot; ${cat.merchantCount} merchants</div>
+        <div class="merchant-accordion-meta">${cat.range ? cat.range + ' &middot; ' : ''}${count} merchants</div>
         <div class="merchant-accordion-arrow">&#9654;</div>
       </div>
       <div class="merchant-accordion-body">
-        ${cat.merchants.map(m => `<span class="merchant-tag">${m}</span>`).join('')}
+        ${merchants.map(m => `<span class="merchant-tag">${m}</span>`).join('')}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   el.innerHTML = '<h2>Known Merchants by Category</h2>' + html;
 }
@@ -1438,13 +1651,20 @@ function renderProfileCountries(profile) {
   const el = document.getElementById('foreignCountriesCard');
   const countries = profile.foreignCountries || [];
 
+  if (countries.length === 0) {
+    el.innerHTML = '<h2>Foreign Countries</h2><div class="empty-state">No data</div>';
+    return;
+  }
+
+  // JSON may have {country, context, card, date} or {country, merchants, currency} — handle both
+  const hasOldSchema = countries[0] && 'context' in countries[0];
   el.innerHTML = `<h2>Foreign Countries</h2>
     <table>
-      <thead><tr><th>Country</th><th>Merchants</th><th>Currency</th></tr></thead>
+      <thead><tr><th>Country</th><th>${hasOldSchema ? 'Context' : 'Merchants'}</th><th>${hasOldSchema ? 'Card · Date' : 'Currency'}</th></tr></thead>
       <tbody>${countries.map(c => `<tr>
         <td>${c.country}</td>
-        <td>${c.merchants}</td>
-        <td>${c.currency}</td>
+        <td>${hasOldSchema ? (c.context || '') : (c.merchants || '')}</td>
+        <td style="color:var(--muted);font-size:12px;">${hasOldSchema ? [c.card, c.date].filter(Boolean).join(' · ') : (c.currency || '')}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -1453,22 +1673,68 @@ function renderProfileLargePurchases(profile) {
   const el = document.getElementById('largePurchasesCard');
   const items = profile.largePurchases || [];
 
+  if (items.length === 0) {
+    el.innerHTML = '<h2>Large One-Time Purchases</h2><div class="empty-state">No data</div>';
+    return;
+  }
+
+  // JSON may use {merchant, amount, date, card, notes} or {item, amount, date, card}
   el.innerHTML = `<h2>Large One-Time Purchases</h2>
     <table>
-      <thead><tr><th>Item</th><th>Amount</th><th>Date</th><th>Card</th></tr></thead>
+      <thead><tr><th>Merchant</th><th>Amount</th><th>Date</th><th>Card</th><th>Notes</th></tr></thead>
       <tbody>${items.map(i => `<tr>
-        <td>${i.item}</td>
-        <td>${i.amount}</td>
-        <td>${i.date}</td>
-        <td>${i.card}</td>
+        <td>${i.merchant || i.item || ''}</td>
+        <td>${typeof i.amount === 'number' ? fmt(i.amount) : (i.amount || '')}</td>
+        <td>${i.date || ''}</td>
+        <td>${i.card || ''}</td>
+        <td style="color:var(--muted);font-size:12px;">${i.notes || ''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
 
 // === Insights helpers ===
 
+// Dismissed insights share the same localStorage set as alerts
+function insightKey(icon, text) {
+  // Stable key: icon + first 60 chars of text (strip HTML tags for stability)
+  const plain = text.replace(/<[^>]+>/g, '').slice(0, 60);
+  return 'insight|' + icon + '|' + plain;
+}
+
 function insightItem(type, icon, text) {
-  return `<div class="insight-item insight-${type}"><span class="insight-icon">${icon}</span><span>${text}</span></div>`;
+  const key = encodeURIComponent(insightKey(icon, text));
+  return `<div class="insight-item insight-${type}" data-insight-key="${key}">
+    <span class="insight-icon">${icon}</span>
+    <span style="flex:1">${text}</span>
+    <button class="insight-dismiss-btn" data-action="dismiss-insight" data-key="${key}" title="Dismiss">✕</button>
+  </div>`;
+}
+
+function attachInsightListeners(containerEl) {
+  if (!containerEl) return;
+  containerEl.querySelectorAll('[data-action="dismiss-insight"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      dismissAlert(decodeURIComponent(btn.dataset.key));
+      // Hide just this item immediately
+      btn.closest('.insight-item').style.display = 'none';
+      // Check if panel is now empty
+      const panel = btn.closest('.insights-panel');
+      if (panel && !panel.querySelector('.insight-item[style=""],.insight-item:not([style])')) {
+        const card = btn.closest('.card, [class*="insight"]');
+        if (card) card.style.display = 'none';
+      }
+    });
+  });
+}
+
+function filterDismissedInsights(containerEl) {
+  if (!containerEl) return;
+  const dismissed = getDismissed();
+  containerEl.querySelectorAll('.insight-item[data-insight-key]').forEach(el => {
+    const key = decodeURIComponent(el.dataset.insightKey);
+    if (dismissed.has(key)) el.style.display = 'none';
+  });
 }
 
 // === Monthly Cards Tab Insights ===
@@ -1542,16 +1808,16 @@ function renderMonthlyInsights(data) {
 
   Object.entries(byMerchant).forEach(([, charges]) => {
     if (charges.length < 2) return;
-    // Sort by date
     charges.sort((a, b) => a.date.localeCompare(b.date));
     for (let i = 0; i < charges.length - 1; i++) {
       const a = charges[i], b = charges[i + 1];
       const daysDiff = (new Date(b.date) - new Date(a.date)) / 86400000;
-      if (daysDiff <= 7) {
+      // Only flag same merchant + identical amount within 2 days — a real accidental double-charge
+      if (daysDiff <= 2 && Math.abs(a.amount - b.amount) < 0.01) {
         items.push(insightItem('alert', '⚠️',
-          `<strong>${charges[i].merchant}</strong> charged twice within ${Math.round(daysDiff) || 1} day(s): ${fmtExact(a.amount)} on ${a.date} and ${fmtExact(b.amount)} on ${b.date}`
+          `<strong>${charges[i].merchant}</strong>: possible duplicate charge of ${fmtExact(a.amount)} on ${a.date}${daysDiff === 0 ? '' : ' and ' + b.date}`
         ));
-        i++; // skip to avoid triple-reporting
+        i++;
       }
     }
   });
@@ -1591,6 +1857,9 @@ function renderMonthlyInsights(data) {
   }
   panel.style.display = 'block';
   list.innerHTML = items.join('');
+  filterDismissedInsights(list);
+  attachInsightListeners(list);
+  if (!list.querySelector('.insight-item:not([style*="none"])')) panel.style.display = 'none';
 }
 
 // === Bank Tab Insights ===
@@ -1689,6 +1958,9 @@ function renderBankInsights(month, data, allData) {
   }
   panel.style.display = 'block';
   list.innerHTML = items.join('');
+  filterDismissedInsights(list);
+  attachInsightListeners(list);
+  if (!list.querySelector('.insight-item:not([style*="none"])')) panel.style.display = 'none';
 }
 
 // === Spending Profile Tab Insights ===
@@ -1708,47 +1980,75 @@ function renderProfileInsights(profile) {
       const m = String(str).replace(/[,~\s]/g, '').match(/[\d.]+/);
       return m ? parseFloat(m[0]) : 0;
     };
-    const total = subs.reduce((s, sub) => s + parseAmt(sub.amount), 0);
+    const total = subs.reduce((s, sub) => s + parseAmt(sub.amountRange), 0);
     items.push(insightItem('neutral', '💳',
-      `<strong>${subs.length} active recurring payments</strong> totalling ~${fmt(total)}/month`
+      `<strong>${subs.length} active recurring payments</strong> — total ~${fmt(total)}/month`
     ));
 
-    // Flag streaming/entertainment duplication
+    // Flag streaming/entertainment duplication (deduplicate by merchant name across cards)
     const streamingKeywords = ['spotify', 'apple', 'netflix', 'youtube', 'hbo', 'disney', 'buyme'];
     const streamingSubs = subs.filter(s =>
       streamingKeywords.some(kw => (s.merchant || '').toLowerCase().includes(kw))
     );
-    if (streamingSubs.length >= 3) {
+    const uniqueStreamingNames = [...new Set(streamingSubs.map(s => s.merchant))];
+    if (uniqueStreamingNames.length >= 3) {
       items.push(insightItem('tip', '🎬',
-        `You have <strong>${streamingSubs.length} entertainment/streaming subscriptions</strong>. Review if all are actively used: ${streamingSubs.map(s => s.merchant).join(', ')}`
+        `You have <strong>${uniqueStreamingNames.length} entertainment/streaming subscriptions</strong>. Review if all are actively used: ${uniqueStreamingNames.join(', ')}`
       ));
     }
   }
 
   // --- b) Top categories trend from DATA_BUNDLE ---
-  const catAccum = {}; // { catName: { months: count, total: sum } }
+  // Accumulate by calendar month first (sum across all cards), then average over months.
+  // This avoids double-counting when the same category appears on multiple cards in the same month.
+  const catByMonth = {}; // { catName: { monthKey: total } }
   REAL_CARDS.forEach(ck => {
     (CARDS[ck].months || []).forEach(m => {
       const key = `${ck}_${m.replace('-', '_')}`;
       const d = DATA_BUNDLE[key];
       if (!d) return;
       buildCatsFromTransactions(d).forEach(c => {
-        if (!catAccum[c.name]) catAccum[c.name] = { count: 0, total: 0 };
-        catAccum[c.name].count++;
-        catAccum[c.name].total += c.total;
+        if (!catByMonth[c.name]) catByMonth[c.name] = {};
+        catByMonth[c.name][m] = (catByMonth[c.name][m] || 0) + c.total;
       });
     });
   });
 
-  const catAvgs = Object.entries(catAccum)
-    .map(([name, v]) => ({ name, avg: v.total / v.count, count: v.count }))
-    .filter(c => c.count >= 2 && c.avg > 100)
+  // Full-coverage months: only months where EVERY card has data.
+  // This ensures averages aren't diluted by months before all cards were being tracked.
+  const allCardMonths = new Set(REAL_CARDS.flatMap(ck => CARDS[ck].months || []));
+  const cardFirstMonth = {};
+  REAL_CARDS.forEach(ck => {
+    const ms = (CARDS[ck].months || []).slice().sort();
+    if (ms.length) cardFirstMonth[ck] = ms[0];
+  });
+  // The earliest month where all cards have data is max(cardFirstMonth values)
+  const latestStart = REAL_CARDS.reduce((latest, ck) => {
+    const first = cardFirstMonth[ck];
+    return first && first > latest ? first : latest;
+  }, '');
+  const fullCoverageMonths = new Set(
+    [...allCardMonths].filter(m => m >= latestStart)
+  );
+
+  const catAvgs = Object.entries(catByMonth)
+    .map(([name, monthMap]) => {
+      // Only average over full-coverage months
+      const relevantMonths = Object.entries(monthMap).filter(([m]) => fullCoverageMonths.has(m));
+      if (relevantMonths.length < 2) return null;
+      const avg = relevantMonths.reduce((s, [, v]) => s + v, 0) / relevantMonths.length;
+      return { name, avg, count: relevantMonths.length };
+    })
+    .filter(Boolean)
+    .filter(c => c.avg > 100)
     .sort((a, b) => b.avg - a.avg)
     .slice(0, 3);
 
   if (catAvgs.length > 0) {
-    const catList = catAvgs.map((c, i) => `${i + 1}. <strong>${c.name}</strong> avg ${fmt(c.avg)}/month`).join(' · ');
-    items.push(insightItem('neutral', '📊', `Top spending categories: ${catList}`));
+    const catRows = catAvgs.map((c, i) =>
+      `<div style="margin-top:4px">${i + 1}. <strong>${c.name}</strong> — avg ${fmt(c.avg)}/month</div>`
+    ).join('');
+    items.push(insightItem('neutral', '📊', `Top spending categories:${catRows}`));
   }
 
   // --- c) Actionable savings tips ---
@@ -1809,11 +2109,17 @@ function renderProfileInsights(profile) {
     }
   }
 
-  if (items.length === 0) return '';
+  const dismissed = getDismissed();
+  const visible = items.filter(html => {
+    const m = html.match(/data-insight-key="([^"]+)"/);
+    return !m || !dismissed.has(decodeURIComponent(m[1]));
+  });
 
-  return `<div class="card" style="margin-bottom:16px;">
+  if (visible.length === 0) return '';
+
+  return `<div class="card" id="profileInsightsCard" style="margin-bottom:16px;">
     <h2>💡 Insights</h2>
-    <div class="insights-panel">${items.join('')}</div>
+    <div class="insights-panel" id="profileInsightsPanel">${visible.join('')}</div>
   </div>`;
 }
 
